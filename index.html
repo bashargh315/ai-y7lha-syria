@@ -1,15 +1,995 @@
-<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI يحلها سوريا</title><style>
-body{font-family:Arial;margin:0;background:#f5f7fb;color:#17202a}header{background:#101828;color:white;padding:24px}main{max-width:950px;margin:auto;padding:18px}.card{background:white;border:1px solid #e2e7ef;border-radius:15px;padding:18px;margin:14px 0}input,textarea{width:100%;box-sizing:border-box;padding:12px;margin:5px 0 10px;border:1px solid #ccd5e2;border-radius:9px}button{padding:11px 15px;border:0;border-radius:9px;background:#101828;color:white;cursor:pointer}.hidden{display:none}.price{font-size:25px;font-weight:bold}.warn{background:#fff4ce;padding:12px;border-radius:9px}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #eee;text-align:right}</style>
-<header><main style="padding:0"><h1>🤖 AI يحلها 🇸🇾</h1><div>اشرح مشكلتك → حل بالذكاء الاصطناعي → دفع محلي → تنفيذ</div></main></header><main>
-<section id="client"><div class="card"><h2>لديك مشكلة في عملك؟</h2><input id="name" placeholder="اسمك أو اسم نشاطك"><input id="contact" placeholder="WhatsApp أو وسيلة التواصل"><input id="link" placeholder="رابط صفحتك (اختياري)"><textarea id="problem" rows="5" placeholder="اشرح المشكلة"></textarea><button onclick="analyze()">🧠 حلّل مشكلتي</button></div><div id="result" class="card hidden"></div><div id="payment" class="card hidden"></div></section>
-<section id="admin" class="hidden"><div class="card"><h2>لوحة الإدارة</h2><div id="data"></div></div></section></main>
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI يحلها سوريا</title>
+
+<style>
+body{
+    font-family:Arial,sans-serif;
+    margin:0;
+    background:#f5f7fb;
+    color:#17202a;
+}
+
+header{
+    background:#101828;
+    color:white;
+    padding:24px;
+}
+
+main{
+    max-width:950px;
+    margin:auto;
+    padding:18px;
+}
+
+.card{
+    background:white;
+    border:1px solid #e2e7ef;
+    border-radius:15px;
+    padding:18px;
+    margin:14px 0;
+    box-sizing:border-box;
+}
+
+input,textarea{
+    width:100%;
+    box-sizing:border-box;
+    padding:12px;
+    margin:5px 0 10px;
+    border:1px solid #ccd5e2;
+    border-radius:9px;
+    font-size:16px;
+}
+
+textarea{
+    resize:vertical;
+}
+
+button{
+    padding:12px 17px;
+    border:0;
+    border-radius:9px;
+    background:#101828;
+    color:white;
+    cursor:pointer;
+    font-size:16px;
+}
+
+button:disabled{
+    opacity:.6;
+    cursor:not-allowed;
+}
+
+.hidden{
+    display:none;
+}
+
+.price{
+    font-size:28px;
+    font-weight:bold;
+}
+
+.warn{
+    background:#fff4ce;
+    padding:14px;
+    border-radius:9px;
+    margin:15px 0;
+}
+
+.success{
+    background:#e8f7ee;
+    padding:14px;
+    border-radius:9px;
+    margin-top:15px;
+}
+
+.error{
+    background:#ffe8e8;
+    padding:14px;
+    border-radius:9px;
+    margin-top:15px;
+}
+
+.qr-box{
+    text-align:center;
+    margin:20px 0;
+}
+
+.qr{
+    display:block;
+    max-width:320px;
+    width:100%;
+    height:auto;
+    margin:15px auto;
+    border-radius:12px;
+    border:1px solid #ddd;
+}
+
+.order-number{
+    background:#f2f4f7;
+    padding:12px;
+    border-radius:9px;
+    margin:12px 0;
+}
+
+table{
+    width:100%;
+    border-collapse:collapse;
+    overflow-x:auto;
+}
+
+td,th{
+    padding:9px;
+    border-bottom:1px solid #eee;
+    text-align:right;
+}
+
+.small{
+    color:#667085;
+    font-size:14px;
+}
+
+@media(max-width:600px){
+    main{
+        padding:10px;
+    }
+
+    header{
+        padding:18px;
+    }
+
+    .card{
+        padding:14px;
+    }
+
+    table{
+        font-size:13px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<main style="padding:0">
+<h1>🤖 AI يحلها 🇸🇾</h1>
+<div>اشرح مشكلتك → حل بالذكاء الاصطناعي → دفع محلي → تنفيذ</div>
+</main>
+</header>
+
+<main>
+
+<section id="client">
+
+<div class="card">
+
+<h2>لديك مشكلة في عملك؟</h2>
+
+<p class="small">
+اشرح لنا مشكلتك وسنحدد الخدمة المناسبة لك.
+</p>
+
+<input
+id="name"
+placeholder="اسمك أو اسم نشاطك"
+autocomplete="name"
+>
+
+<input
+id="contact"
+placeholder="WhatsApp أو وسيلة التواصل"
+>
+
+<input
+id="link"
+placeholder="رابط صفحتك (اختياري)"
+>
+
+<textarea
+id="problem"
+rows="6"
+placeholder="اشرح المشكلة بالتفصيل"
+></textarea>
+
+<button id="analyzeButton" onclick="analyze()">
+🧠 حلّل مشكلتي
+</button>
+
+</div>
+
+
+<div id="result" class="card hidden"></div>
+
+<div id="payment" class="card hidden"></div>
+
+</section>
+
+
+<section id="admin" class="hidden">
+
+<div class="card">
+
+<h2>لوحة الإدارة</h2>
+
+<div id="data">
+جاري تحميل البيانات...
+</div>
+
+</div>
+
+</section>
+
+</main>
+
+
 <script>
-let lead,order;
-function service(p){if(/مطعم|أكل|طعام/.test(p))return["AI محتوى للمطاعم",120000];if(/متجر|منتج|بيع|ملابس|إلكترونيات/.test(p))return["AI محتوى المنتجات",150000];if(/واتساب|رسائل|عملاء|مبيعات/.test(p))return["AI تنظيم العملاء والردود",180000];return["AI تحليل وحل مشكلة النشاط",100000]}
-async function analyze(){let name=document.getElementById("name").value.trim(),contact=document.getElementById("contact").value.trim(),link=document.getElementById("link").value.trim(),problem=document.getElementById("problem").value.trim();if(!name||!contact||!problem)return alert("أكمل البيانات");let r=await fetch("/api/lead",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,contact,link,problem})});lead=await r.json();let s=service(problem);document.getElementById("result").classList.remove("hidden");document.getElementById("result").innerHTML="<h2>الحل المقترح</h2><p>"+s[0]+"</p><p class='price'>"+s[1].toLocaleString()+" ل.س</p><button onclick='buy()'>أريد تنفيذ الحل</button>"}
-async function buy(){let s=service(lead.problem),r=await fetch("/api/order",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({lead_id:lead.id,service:s[0],price:s[1]})});order=await r.json();document.getElementById("payment").classList.remove("hidden");document.getElementById("payment").innerHTML="<h2>🇸🇾 الدفع عبر شام كاش</h2><div class='warn'>ضع QR حسابك في static/shamcash_qr.png. هذه النسخة لا تستخدم API. تحقق من وصول المال بنفسك قبل التنفيذ.</div><p>رقم الطلب: <b>"+order.id+"</b></p><p>المبلغ: <b>"+order.price.toLocaleString()+" ل.س</b></p><button onclick='sent()'>دفعت — أرسل للمراجعة</button>"}
-function sent(){document.getElementById("payment").innerHTML+="<p>تم تسجيل الطلب بانتظار التحقق اليدوي.</p>"}
-async function admin(){let r=await fetch("/api/admin"),d=await r.json();let l=d.leads.map(x=>"<tr><td>"+x.id+"</td><td>"+x.name+"</td><td>"+x.contact+"</td><td>"+x.problem+"</td></tr>").join(""),o=d.orders.map(x=>"<tr><td>"+x.id+"</td><td>"+x.service+"</td><td>"+x.price.toLocaleString()+"</td><td>"+x.status+"</td><td><button onclick='verify("+x.id+")'>تحقق</button></td></tr>").join("");document.getElementById("data").innerHTML="<h3>Leads</h3><table><tr><th>ID</th><th>الاسم</th><th>التواصل</th><th>المشكلة</th></tr>"+l+"</table><h3>Orders</h3><table><tr><th>ID</th><th>الخدمة</th><th>المبلغ</th><th>الحالة</th><th></th></tr>"+o+"</table>"}
-async function verify(id){await fetch("/api/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:id})});admin()}
-if(location.pathname==="/admin"){document.getElementById("client").classList.add("hidden");document.getElementById("admin").classList.remove("hidden");admin()}
+
+let lead = null;
+let order = null;
+let services = {};
+
+
+/* =========================
+   تحميل أسعار الخدمات
+========================= */
+
+async function loadServices(){
+
+    try{
+
+        const response = await fetch("/api/services");
+
+        if(!response.ok){
+            throw new Error("services error");
+        }
+
+        services = await response.json();
+
+    }catch(error){
+
+        /* أسعار احتياطية إذا تعذر الاتصال بالخادم */
+
+        services = {
+            "AI محتوى للمطاعم":15,
+            "AI محتوى المنتجات":15,
+            "AI تنظيم العملاء والردود":20,
+            "AI تحليل وحل مشكلة النشاط":10
+        };
+
+    }
+
+}
+
+
+/* =========================
+   تحديد الخدمة
+========================= */
+
+function serviceName(problem){
+
+    if(/مطعم|أكل|طعام/.test(problem)){
+        return "AI محتوى للمطاعم";
+    }
+
+    if(/متجر|منتج|بيع|ملابس|إلكترونيات/.test(problem)){
+        return "AI محتوى المنتجات";
+    }
+
+    if(/واتساب|رسائل|عملاء|مبيعات/.test(problem)){
+        return "AI تنظيم العملاء والردود";
+    }
+
+    return "AI تحليل وحل مشكلة النشاط";
+
+}
+
+
+/* =========================
+   تحليل المشكلة
+========================= */
+
+async function analyze(){
+
+    const name =
+        document.getElementById("name").value.trim();
+
+    const contact =
+        document.getElementById("contact").value.trim();
+
+    const link =
+        document.getElementById("link").value.trim();
+
+    const problem =
+        document.getElementById("problem").value.trim();
+
+    if(!name || !contact || !problem){
+
+        alert("يرجى إكمال البيانات المطلوبة.");
+
+        return;
+    }
+
+
+    const button =
+        document.getElementById("analyzeButton");
+
+    button.disabled = true;
+    button.innerText = "⏳ جارٍ تحليل الطلب...";
+
+
+    try{
+
+        const response = await fetch("/api/lead",{
+
+            method:"POST",
+
+            headers:{
+                "Content-Type":"application/json"
+            },
+
+            body:JSON.stringify({
+                name:name,
+                contact:contact,
+                link:link,
+                problem:problem
+            })
+
+        });
+
+
+        if(!response.ok){
+
+            throw new Error("lead error");
+
+        }
+
+
+        lead = await response.json();
+
+
+        await loadServices();
+
+
+        const service =
+            serviceName(problem);
+
+
+        const price =
+            Number(services[service] ?? 10);
+
+
+        const result =
+            document.getElementById("result");
+
+
+        result.classList.remove("hidden");
+
+
+        result.innerHTML = `
+
+            <h2>🤖 الحل المقترح</h2>
+
+            <p>
+                <b>${service}</b>
+            </p>
+
+            <p class="price">
+                $${price}
+            </p>
+
+            <p>
+                أو ما يعادلها بالليرة السورية حسب سعر الصرف.
+            </p>
+
+            <p class="small">
+                السعر قابل للتعديل حسب نوع الخدمة وحجم العمل.
+            </p>
+
+            <button onclick="buy()">
+                أريد تنفيذ الحل
+            </button>
+
+        `;
+
+
+        result.scrollIntoView({
+            behavior:"smooth"
+        });
+
+
+    }catch(error){
+
+        const result =
+            document.getElementById("result");
+
+        result.classList.remove("hidden");
+
+        result.innerHTML = `
+
+            <div class="error">
+                حدث خطأ أثناء إرسال الطلب.
+                يرجى المحاولة مرة أخرى.
+            </div>
+
+        `;
+
+    }finally{
+
+        button.disabled = false;
+        button.innerText = "🧠 حلّل مشكلتي";
+
+    }
+
+}
+
+
+/* =========================
+   إنشاء طلب
+========================= */
+
+async function buy(){
+
+    if(!lead){
+
+        alert("يرجى تحليل المشكلة أولاً.");
+
+        return;
+    }
+
+
+    const service =
+        serviceName(lead.problem);
+
+
+    try{
+
+        const response =
+            await fetch("/api/order",{
+
+                method:"POST",
+
+                headers:{
+                    "Content-Type":"application/json"
+                },
+
+                body:JSON.stringify({
+
+                    lead_id:lead.id,
+
+                    service:service
+
+                })
+
+            });
+
+
+        if(!response.ok){
+
+            throw new Error("order error");
+
+        }
+
+
+        order =
+            await response.json();
+
+
+        const payment =
+            document.getElementById("payment");
+
+
+        payment.classList.remove("hidden");
+
+
+        payment.innerHTML = `
+
+            <h2>🇸🇾 الدفع عبر شام كاش</h2>
+
+            <p>
+                الخدمة:
+                <b>${order.service}</b>
+            </p>
+
+            <p class="price">
+                $${Number(order.price_usd ?? 0)}
+            </p>
+
+            <p>
+                أو ما يعادلها بالليرة السورية حسب سعر الصرف.
+            </p>
+
+
+            <div class="qr-box">
+
+                <p>
+                    <b>📱 امسح QR للدفع عبر شام كاش</b>
+                </p>
+
+                <img
+                    class="qr"
+                    src="/IMG-20260829-WA0010.jpg"
+                    alt="QR شام كاش"
+                    onerror="qrError()"
+                >
+
+                <p class="small">
+                    استخدم تطبيق شام كاش لمسح رمز QR وإتمام الدفع.
+                </p>
+
+            </div>
+
+
+            <div class="warn">
+
+                <b>⚠️ مهم</b>
+
+                <p>
+                    بعد إتمام التحويل، اضغط زر
+                    «دفعت — أرسل للمراجعة».
+                </p>
+
+                <p>
+                    لن يتم اعتبار الدفع مؤكدًا تلقائيًا.
+                    سيتم التحقق من وصول المبلغ يدويًا.
+                </p>
+
+            </div>
+
+
+            <div class="order-number">
+
+                رقم الطلب:
+                <b>${order.id}</b>
+
+            </div>
+
+
+            <button
+                id="paidButton"
+                onclick="sent()"
+            >
+                💰 دفعت — أرسل للمراجعة
+            </button>
+
+
+            <div id="paymentMessage"></div>
+
+        `;
+
+
+        payment.scrollIntoView({
+            behavior:"smooth"
+        });
+
+
+    }catch(error){
+
+        const payment =
+            document.getElementById("payment");
+
+        payment.classList.remove("hidden");
+
+        payment.innerHTML = `
+
+            <div class="error">
+                تعذر إنشاء الطلب.
+                يرجى المحاولة مرة أخرى.
+            </div>
+
+        `;
+
+    }
+
+}
+
+
+/* =========================
+   خطأ QR
+========================= */
+
+function qrError(){
+
+    const payment =
+        document.getElementById("payment");
+
+    payment.insertAdjacentHTML(
+        "beforeend",
+        `
+        <div class="error">
+            لم يتم العثور على صورة QR.
+            تأكد أن الملف
+            <b>IMG-20260829-WA0010.jpg</b>
+            موجود في المستودع الرئيسي للمشروع.
+        </div>
+        `
+    );
+
+}
+
+
+/* =========================
+   العميل يقول إنه دفع
+========================= */
+
+async function sent(){
+
+    if(!order){
+
+        return;
+    }
+
+
+    const button =
+        document.getElementById("paidButton");
+
+
+    if(button){
+        button.disabled = true;
+        button.innerText = "⏳ جارٍ إرسال الطلب...";
+    }
+
+
+    try{
+
+        const response =
+            await fetch("/api/paid",{
+
+                method:"POST",
+
+                headers:{
+                    "Content-Type":"application/json"
+                },
+
+                body:JSON.stringify({
+
+                    order_id:order.id
+
+                })
+
+            });
+
+
+        const result =
+            await response.json();
+
+
+        if(!response.ok || !result.ok){
+
+            throw new Error("payment error");
+
+        }
+
+
+        const message =
+            document.getElementById("paymentMessage");
+
+
+        if(result.already_submitted){
+
+            message.innerHTML = `
+
+                <div class="success">
+
+                    تم إرسال هذا الطلب للمراجعة مسبقًا.
+                    لا تحتاج للضغط مرة أخرى.
+
+                </div>
+
+            `;
+
+            return;
+        }
+
+
+        message.innerHTML = `
+
+            <div class="success">
+
+                ✅ تم إرسال طلب الدفع للمراجعة بنجاح.
+
+                <br><br>
+
+                سيتم التحقق من وصول المبلغ قبل بدء تنفيذ الخدمة.
+
+            </div>
+
+        `;
+
+
+        if(button){
+
+            button.innerText =
+                "✅ تم إرسال الطلب للمراجعة";
+
+        }
+
+
+    }catch(error){
+
+        if(button){
+
+            button.disabled = false;
+
+            button.innerText =
+                "💰 دفعت — أرسل للمراجعة";
+
+        }
+
+
+        const message =
+            document.getElementById("paymentMessage");
+
+
+        message.innerHTML = `
+
+            <div class="error">
+
+                حدث خطأ أثناء إرسال طلب المراجعة.
+                يرجى المحاولة مرة أخرى.
+
+            </div>
+
+        `;
+
+    }
+
+}
+
+
+/* =========================
+   لوحة الإدارة
+========================= */
+
+async function admin(){
+
+    try{
+
+        const response =
+            await fetch("/api/admin");
+
+
+        if(!response.ok){
+
+            throw new Error("admin error");
+
+        }
+
+
+        const data =
+            await response.json();
+
+
+        const leads =
+            data.leads || [];
+
+
+        const orders =
+            data.orders || [];
+
+
+        let leadsHtml =
+            leads.map(x => `
+
+                <tr>
+
+                    <td>${x.id}</td>
+
+                    <td>${x.name}</td>
+
+                    <td>${x.contact}</td>
+
+                    <td>${x.problem}</td>
+
+                </tr>
+
+            `).join("");
+
+
+        if(!leadsHtml){
+
+            leadsHtml =
+                `
+                <tr>
+                    <td colspan="4">
+                        لا يوجد عملاء حتى الآن.
+                    </td>
+                </tr>
+                `;
+        }
+
+
+        let ordersHtml =
+            orders.map(x => `
+
+                <tr>
+
+                    <td>${x.id}</td>
+
+                    <td>${x.service}</td>
+
+                    <td>
+                        $${Number(x.price_usd ?? 0)}
+                    </td>
+
+                    <td>${x.status}</td>
+
+                    <td>
+
+                        ${
+                            x.status === "payment_submitted"
+
+                            ?
+
+                            `<button
+                                onclick="verify('${x.id}')"
+                            >
+                                تأكيد استلام
+                            </button>`
+
+                            :
+
+                            ""
+
+                        }
+
+                    </td>
+
+                </tr>
+
+            `).join("");
+
+
+        if(!ordersHtml){
+
+            ordersHtml =
+                `
+                <tr>
+                    <td colspan="5">
+                        لا يوجد طلبات حتى الآن.
+                    </td>
+                </tr>
+                `;
+        }
+
+
+        document.getElementById("data").innerHTML = `
+
+            <h3>👤 العملاء</h3>
+
+            <table>
+
+                <tr>
+                    <th>ID</th>
+                    <th>الاسم</th>
+                    <th>التواصل</th>
+                    <th>المشكلة</th>
+                </tr>
+
+                ${leadsHtml}
+
+            </table>
+
+
+            <h3>💰 الطلبات</h3>
+
+            <table>
+
+                <tr>
+                    <th>ID</th>
+                    <th>الخدمة</th>
+                    <th>السعر</th>
+                    <th>الحالة</th>
+                    <th></th>
+                </tr>
+
+                ${ordersHtml}
+
+            </table>
+
+        `;
+
+
+    }catch(error){
+
+        document.getElementById("data").innerHTML = `
+
+            <div class="error">
+                تعذر تحميل بيانات الإدارة.
+            </div>
+
+        `;
+
+    }
+
+}
+
+
+/* =========================
+   تأكيد استلام الدفع
+========================= */
+
+async function verify(id){
+
+    try{
+
+        const response =
+            await fetch("/api/verify",{
+
+                method:"POST",
+
+                headers:{
+                    "Content-Type":"application/json"
+                },
+
+                body:JSON.stringify({
+
+                    order_id:id
+
+                })
+
+            });
+
+
+        const result =
+            await response.json();
+
+
+        if(result.ok){
+
+            alert(
+                "تم تأكيد استلام الدفع لهذا الطلب."
+            );
+
+            admin();
+
+        }else{
+
+            alert(
+                "تعذر تأكيد الطلب."
+            );
+
+        }
+
+
+    }catch(error){
+
+        alert(
+            "حدث خطأ أثناء تأكيد الطلب."
+        );
+
+    }
+
+}
+
+
+/* =========================
+   بدء التطبيق
+========================= */
+
+loadServices();
+
+
+if(location.pathname === "/admin"){
+
+    document
+        .getElementById("client")
+        .classList.add("hidden");
+
+
+    document
+        .getElementById("admin")
+        .classList.remove("hidden");
+
+
+    admin();
+
+}
+
 </script>
+
+</body>
+</html>
