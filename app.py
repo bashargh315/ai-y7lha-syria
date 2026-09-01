@@ -55,7 +55,11 @@ def db():
 
 def save(data):
     DB.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
+        json.dumps(
+            data,
+            ensure_ascii=False,
+            indent=2
+        ),
         encoding="utf-8"
     )
 
@@ -65,13 +69,16 @@ def save(data):
 # =========================
 
 def send_telegram(message):
+
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
     if not token or not chat_id:
+        print("Telegram environment variables are missing")
         return False
 
     try:
+
         url = f"https://api.telegram.org/bot{token}/sendMessage"
 
         data = urllib.parse.urlencode({
@@ -86,52 +93,78 @@ def send_telegram(message):
         )
 
         with urllib.request.urlopen(req, timeout=15) as response:
+
             return response.status == 200
 
     except Exception as e:
+
         print("Telegram error:", e)
+
         return False
 
 
 # =========================
-# الموقع الرئيسي
+# الصفحة الرئيسية
 # =========================
 
 @app.get("/")
 def home():
-    return send_from_directory(".", "index.html")
+
+    return send_from_directory(
+        ".",
+        "index.html"
+    )
 
 
 # =========================
-# لوحة الإدارة
+# صفحة الإدارة
 # =========================
 
 @app.get("/admin")
 def admin():
-    return send_from_directory(".", "index.html")
+
+    return send_from_directory(
+        ".",
+        "index.html"
+    )
 
 
 # =========================
-# عرض QR شام كاش
+# QR شام كاش
 # =========================
 
 @app.get("/qr")
 def qr():
-    return send_from_directory(".", QR_FILE)
+
+    if not Path(QR_FILE).exists():
+
+        return jsonify({
+            "ok": False,
+            "error": "QR image not found"
+        }), 404
+
+    return send_from_directory(
+        ".",
+        QR_FILE
+    )
 
 
 # =========================
-# خدمات وأسعار
+# الخدمات والأسعار
 # =========================
 
 @app.get("/api/services")
 def services():
+
     data = db()
-    return jsonify(data["services"])
+
+    return jsonify(
+        data["services"]
+    )
 
 
 # =========================
-# استقبال العميل
+# إنشاء عميل
 # =========================
 
 @app.post("/api/lead")
@@ -140,19 +173,33 @@ def lead():
     data = db()
     body = request.json or {}
 
-    name = body.get("name", "").strip()
-    contact = body.get("contact", "").strip()
-    problem = body.get("problem", "").strip()
-    link = body.get("link", "").strip()
+    name = str(
+        body.get("name", "")
+    ).strip()
+
+    contact = str(
+        body.get("contact", "")
+    ).strip()
+
+    problem = str(
+        body.get("problem", "")
+    ).strip()
+
+    link = str(
+        body.get("link", "")
+    ).strip()
 
     if not name or not contact or not problem:
+
         return jsonify({
             "ok": False,
             "error": "الاسم ووسيلة التواصل ووصف المشكلة مطلوبة"
         }), 400
 
-    # منع تكرار نفس الطلب خلال 10 دقائق
     now = time.time()
+
+    # منع إنشاء نفس العميل/المشكلة
+    # عدة مرات خلال 10 دقائق
 
     for old in data["leads"]:
 
@@ -162,9 +209,12 @@ def lead():
             and old.get("problem") == problem
             and now - old.get("created_at", 0) < 600
         ):
+
             return jsonify(old)
 
-    lead_id = "L" + str(int(time.time() * 1000))
+    lead_id = "L" + str(
+        int(time.time() * 1000)
+    )
 
     new_lead = {
         "id": lead_id,
@@ -176,10 +226,15 @@ def lead():
         "created_at": now
     }
 
-    data["leads"].append(new_lead)
+    data["leads"].append(
+        new_lead
+    )
+
     save(data)
 
-    return jsonify(new_lead)
+    return jsonify(
+        new_lead
+    )
 
 
 # =========================
@@ -192,23 +247,31 @@ def order():
     data = db()
     body = request.json or {}
 
-    lead_id = body.get("lead_id")
-    service = body.get("service")
+    lead_id = body.get(
+        "lead_id"
+    )
+
+    service = body.get(
+        "service"
+    )
 
     if not lead_id or not service:
+
         return jsonify({
             "ok": False,
             "error": "بيانات الطلب ناقصة"
         }), 400
 
     if service not in data["services"]:
+
         return jsonify({
             "ok": False,
             "error": "الخدمة غير موجودة"
         }), 400
 
-    # منع إنشاء نفس الطلب مرة ثانية
-    existing_statuses = [
+    # منع تكرار الطلب
+
+    active_statuses = [
         "awaiting_payment",
         "payment_submitted",
         "payment_verified_manual",
@@ -217,34 +280,60 @@ def order():
     ]
 
     for old in data["orders"]:
+
         if (
             old.get("lead_id") == lead_id
             and old.get("service") == service
-            and old.get("status") in existing_statuses
+            and old.get("status") in active_statuses
         ):
-            return jsonify(old)
 
-    order_id = "ORD" + str(int(time.time() * 1000))
+            return jsonify({
+                "ok": True,
+                "id": old["id"],
+                "lead_id": old["lead_id"],
+                "service": old["service"],
+                "price": old["price"],
+                "price_usd": old["price"],
+                "status": old["status"]
+            })
 
-    price = data["services"][service]
+    order_id = "ORD" + str(
+        int(time.time() * 1000)
+    )
+
+    price = float(
+        data["services"][service]
+    )
 
     new_order = {
         "id": order_id,
         "lead_id": lead_id,
         "service": service,
         "price": price,
+        "price_usd": price,
         "status": "awaiting_payment",
         "created_at": time.time()
     }
 
-    data["orders"].append(new_order)
+    data["orders"].append(
+        new_order
+    )
+
     save(data)
 
-    return jsonify(new_order)
+    return jsonify({
+        "ok": True,
+        "id": order_id,
+        "lead_id": lead_id,
+        "service": service,
+        "price": price,
+        "price_usd": price,
+        "status": "awaiting_payment"
+    })
 
 
 # =========================
-# العميل ضغط "دفعت"
+# العميل يقول: دفعت
 # =========================
 
 @app.post("/api/paid")
@@ -253,32 +342,71 @@ def paid():
     data = db()
     body = request.json or {}
 
-    order_id = body.get("order_id")
+    order_id = body.get(
+        "order_id"
+    )
+
+    if not order_id:
+
+        return jsonify({
+            "ok": False,
+            "error": "رقم الطلب مفقود"
+        }), 400
 
     for order in data["orders"]:
 
-        if order["id"] == order_id:
+        if order["id"] != order_id:
+            continue
 
-            # منع إرسال إشعار Telegram مرتين
-            if order["status"] in [
-                "payment_submitted",
-                "payment_verified_manual",
-                "processing",
-                "completed"
-            ]:
-                return jsonify(order)
+        # منع إرسال الإشعار مرتين
 
-            order["status"] = "payment_submitted"
-            order["payment_submitted_at"] = time.time()
+        if order["status"] == "payment_submitted":
 
-            client = None
+            return jsonify({
+                "ok": True,
+                "already_submitted": True,
+                "order": order
+            })
 
-            for lead in data["leads"]:
-                if lead["id"] == order["lead_id"]:
-                    client = lead
-                    break
+        if order["status"] in [
+            "payment_verified_manual",
+            "processing",
+            "completed"
+        ]:
 
-            message = f"""
+            return jsonify({
+                "ok": True,
+                "already_submitted": True,
+                "order": order
+            })
+
+        order["status"] = "payment_submitted"
+
+        order["payment_submitted_at"] = time.time()
+
+        client = None
+
+        for lead in data["leads"]:
+
+            if lead["id"] == order["lead_id"]:
+
+                client = lead
+
+                break
+
+        if client:
+
+            client_name = client["name"]
+            client_contact = client["contact"]
+            client_problem = client["problem"]
+
+        else:
+
+            client_name = "غير معروف"
+            client_contact = "غير معروف"
+            client_problem = "غير معروف"
+
+        message = f"""
 🔔 طلب دفع جديد
 
 🆔 رقم الطلب:
@@ -288,27 +416,34 @@ def paid():
 {order["service"]}
 
 💵 السعر:
-${order["price"]}
+${order["price_usd"]}
 
 👤 العميل:
-{client["name"] if client else "غير معروف"}
+{client_name}
 
 📞 التواصل:
-{client["contact"] if client else "غير معروف"}
+{client_contact}
 
 📝 المشكلة:
-{client["problem"] if client else "غير معروف"}
+{client_problem}
 
 ⚠️ العميل ضغط "دفعت".
 
 يرجى التحقق يدويًا من وصول المبلغ في شام كاش قبل تأكيد الطلب.
 """
 
-            send_telegram(message)
+        telegram_sent = send_telegram(
+            message
+        )
 
-            save(data)
+        save(data)
 
-            return jsonify(order)
+        return jsonify({
+            "ok": True,
+            "already_submitted": False,
+            "telegram_sent": telegram_sent,
+            "order": order
+        })
 
     return jsonify({
         "ok": False,
@@ -317,7 +452,7 @@ ${order["price"]}
 
 
 # =========================
-# تأكيد الدفع يدويًا من الإدارة
+# تأكيد الدفع يدويًا
 # =========================
 
 @app.post("/api/verify")
@@ -326,27 +461,46 @@ def verify():
     data = db()
     body = request.json or {}
 
-    order_id = body.get("order_id")
+    order_id = body.get(
+        "order_id"
+    )
+
+    if not order_id:
+
+        return jsonify({
+            "ok": False,
+            "error": "رقم الطلب مفقود"
+        }), 400
 
     for order in data["orders"]:
 
-        if order["id"] == order_id:
+        if order["id"] != order_id:
+            continue
 
-            if order["status"] == "completed":
-                return jsonify(order)
-
-            if order["status"] == "processing":
-                return jsonify(order)
-
-            order["status"] = "payment_verified_manual"
-            order["payment_verified_at"] = time.time()
-
-            save(data)
+        if order["status"] == "completed":
 
             return jsonify({
                 "ok": True,
                 "order": order
             })
+
+        if order["status"] == "processing":
+
+            return jsonify({
+                "ok": True,
+                "order": order
+            })
+
+        order["status"] = "payment_verified_manual"
+
+        order["payment_verified_at"] = time.time()
+
+        save(data)
+
+        return jsonify({
+            "ok": True,
+            "order": order
+        })
 
     return jsonify({
         "ok": False,
@@ -355,21 +509,29 @@ def verify():
 
 
 # =========================
-# بيانات لوحة الإدارة
+# بيانات الإدارة
 # =========================
 
 @app.get("/api/admin")
 def admin_api():
-    return jsonify(db())
+
+    return jsonify(
+        db()
+    )
 
 
 # =========================
-# تشغيل السيرفر
+# تشغيل التطبيق
 # =========================
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 5000))
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
 
     app.run(
         host="0.0.0.0",
