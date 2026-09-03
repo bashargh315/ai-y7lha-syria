@@ -4,9 +4,8 @@ import time
 import os
 import urllib.request
 import urllib.parse
-import threading
-import secrets
 from pathlib import Path
+import threading
 
 
 app = Flask(__name__)
@@ -20,11 +19,6 @@ DB = Path("data.json")
 
 QR_FILE = "IMG-20260829-WA0010.jpg"
 
-OPENAI_MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "gpt-5.6-luna"
-)
-
 DEFAULT_SERVICES = {
     "AI محتوى للمطاعم": 15,
     "AI محتوى المنتجات": 15,
@@ -32,30 +26,31 @@ DEFAULT_SERVICES = {
     "AI تحليل وحل مشكلة النشاط": 10
 }
 
+# النموذج الافتراضي
+OPENAI_MODEL = os.getenv(
+    "OPENAI_MODEL",
+    "gpt-5.6-luna"
+)
+
 
 # =========================================================
 # قاعدة البيانات
 # =========================================================
 
-def create_database_if_needed():
+if not DB.exists():
 
-    if not DB.exists():
-
-        DB.write_text(
-            json.dumps(
-                {
-                    "leads": [],
-                    "orders": [],
-                    "services": DEFAULT_SERVICES.copy()
-                },
-                ensure_ascii=False,
-                indent=2
-            ),
-            encoding="utf-8"
-        )
-
-
-create_database_if_needed()
+    DB.write_text(
+        json.dumps(
+            {
+                "leads": [],
+                "orders": [],
+                "services": DEFAULT_SERVICES
+            },
+            ensure_ascii=False,
+            indent=2
+        ),
+        encoding="utf-8"
+    )
 
 
 def db():
@@ -70,10 +65,7 @@ def db():
 
     except Exception as e:
 
-        print(
-            "Database read error:",
-            e
-        )
+        print("Database read error:", e)
 
         data = {
             "leads": [],
@@ -95,11 +87,7 @@ def db():
 
 def save(data):
 
-    temporary_file = Path(
-        str(DB) + ".tmp"
-    )
-
-    temporary_file.write_text(
+    DB.write_text(
         json.dumps(
             data,
             ensure_ascii=False,
@@ -108,11 +96,9 @@ def save(data):
         encoding="utf-8"
     )
 
-    temporary_file.replace(DB)
-
 
 # =========================================================
-# أدوات البحث
+# البحث عن عميل
 # =========================================================
 
 def find_lead(data, lead_id):
@@ -126,6 +112,10 @@ def find_lead(data, lead_id):
     return None
 
 
+# =========================================================
+# البحث عن طلب
+# =========================================================
+
 def find_order(data, order_id):
 
     for order in data["orders"]:
@@ -138,13 +128,10 @@ def find_order(data, order_id):
 
 
 # =========================================================
-# Telegram
+# Telegram API
 # =========================================================
 
-def telegram_request(
-    method,
-    payload
-):
+def telegram_request(method, payload):
 
     token = os.getenv(
         "TELEGRAM_BOT_TOKEN"
@@ -191,7 +178,10 @@ def telegram_request(
             result = json.loads(raw)
 
             return (
-                result.get("ok", False),
+                result.get(
+                    "ok",
+                    False
+                ),
                 result
             )
 
@@ -205,6 +195,10 @@ def telegram_request(
 
         return False, None
 
+
+# =========================================================
+# إرسال Telegram
+# =========================================================
 
 def send_telegram(
     message,
@@ -238,30 +232,103 @@ def send_telegram(
         )
 
 
-    ok, _ = telegram_request(
+    ok, result = telegram_request(
         "sendMessage",
         payload
     )
 
+
     return ok
 
 
+# =========================================================
+# جواب زر Telegram
+# =========================================================
+
 def answer_callback(
-    callback_id
+    callback_id,
+    text="تم تنفيذ العملية."
 ):
 
     if not callback_id:
+
         return
+
 
     telegram_request(
         "answerCallbackQuery",
         {
             "callback_query_id":
                 callback_id,
+
             "text":
-                "تم استلام التأكيد ✅"
+                text
         }
     )
+
+
+# =========================================================
+# إزالة زر التأكيد من رسالة Telegram
+# =========================================================
+
+def remove_telegram_button(
+    callback
+):
+
+    try:
+
+        message = callback.get(
+            "message"
+        )
+
+        if not message:
+
+            return
+
+
+        chat = message.get(
+            "chat",
+            {}
+        )
+
+        chat_id = chat.get(
+            "id"
+        )
+
+        message_id = message.get(
+            "message_id"
+        )
+
+
+        if not chat_id or not message_id:
+
+            return
+
+
+        telegram_request(
+            "editMessageReplyMarkup",
+            {
+                "chat_id":
+                    chat_id,
+
+                "message_id":
+                    message_id,
+
+                "reply_markup":
+                    json.dumps(
+                        {
+                            "inline_keyboard": []
+                        }
+                    )
+            }
+        )
+
+    except Exception as e:
+
+        print(
+            "Remove Telegram button error:",
+            e
+        )
 
 
 # =========================================================
@@ -279,13 +346,11 @@ def payment_confirmation_keyboard(
             [
 
                 {
-
                     "text":
                         "✅ تأكيد استلام الدفع",
 
                     "callback_data":
                         f"confirm_payment:{order_id}"
-
                 }
 
             ]
@@ -296,116 +361,257 @@ def payment_confirmation_keyboard(
 
 
 # =========================================================
-# إرسال إشعار الدفع إلى Telegram
+# إعداد Telegram Webhook
 # =========================================================
 
-def send_payment_notification(
-    order,
-    client
-):
+def get_app_url():
 
-    if client:
+    render_url = os.getenv(
+        "RENDER_EXTERNAL_URL"
+    )
 
-        client_name = client.get(
-            "name",
-            "غير معروف"
+    if render_url:
+
+        return render_url.rstrip("/")
+
+
+    app_url = os.getenv(
+        "APP_URL"
+    )
+
+    if app_url:
+
+        return app_url.rstrip("/")
+
+
+    # احتياط
+    return (
+        "https://ai-y7lha-syria.onrender.com"
+    )
+
+
+def setup_telegram_webhook():
+
+    token = os.getenv(
+        "TELEGRAM_BOT_TOKEN"
+    )
+
+    if not token:
+
+        print(
+            "Telegram webhook skipped: "
+            "TELEGRAM_BOT_TOKEN missing"
         )
 
-        client_contact = client.get(
-            "contact",
-            "غير معروف"
-        )
+        return
 
-        client_problem = client.get(
-            "problem",
-            "غير معروف"
+
+    app_url = get_app_url()
+
+
+    webhook_url = (
+        f"{app_url}/telegram/webhook"
+    )
+
+
+    ok, result = telegram_request(
+        "setWebhook",
+        {
+            "url":
+                webhook_url
+        }
+    )
+
+
+    if ok:
+
+        print(
+            "Telegram webhook configured:",
+            webhook_url
         )
 
     else:
 
-        client_name = "غير معروف"
-
-        client_contact = "غير معروف"
-
-        client_problem = "غير معروف"
-
-
-    message = f"""
-🔔 طلب دفع جديد
-
-🆔 رقم الطلب:
-{order["id"]}
-
-🛠 الخدمة:
-{order["service"]}
-
-💵 السعر:
-${order["price_usd"]}
-
-👤 العميل:
-{client_name}
-
-📞 التواصل:
-{client_contact}
-
-📝 المشكلة:
-{client_problem}
-
-⚠️ العميل ضغط "دفعت".
-
-تحقق يدويًا من وصول المبلغ في شام كاش.
-
-بعد التأكد اضغط:
-✅ تأكيد استلام الدفع
-"""
-
-
-    return send_telegram(
-        message,
-        payment_confirmation_keyboard(
-            order["id"]
+        print(
+            "Telegram webhook failed:",
+            result
         )
-    )
 
 
 # =========================================================
-# OpenAI
+# OpenAI API
 # =========================================================
 
-def call_openai(
-    service,
-    client,
-    order
+def openai_request(
+    prompt
 ):
 
     api_key = os.getenv(
         "OPENAI_API_KEY"
     )
 
+
     if not api_key:
 
-        raise RuntimeError(
-            "OPENAI_API_KEY غير موجود في Render"
+        return (
+            False,
+            "OPENAI_API_KEY غير موجود في Render."
         )
 
 
-    client_name = client.get(
+    url = (
+        "https://api.openai.com/v1/responses"
+    )
+
+
+    payload = {
+
+        "model":
+            OPENAI_MODEL,
+
+        "input":
+            prompt
+    }
+
+
+    try:
+
+        body = json.dumps(
+            payload,
+            ensure_ascii=False
+        ).encode("utf-8")
+
+
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type":
+                    "application/json",
+
+                "Authorization":
+                    f"Bearer {api_key}"
+            }
+        )
+
+
+        with urllib.request.urlopen(
+            req,
+            timeout=120
+        ) as response:
+
+            raw = response.read().decode(
+                "utf-8"
+            )
+
+            result = json.loads(raw)
+
+
+        # Responses API قد تعيد output_text
+        text = result.get(
+            "output_text"
+        )
+
+
+        if text:
+
+            return (
+                True,
+                text.strip()
+            )
+
+
+        # احتياط إذا لم يوجد output_text
+        output = result.get(
+            "output",
+            []
+        )
+
+
+        texts = []
+
+
+        for item in output:
+
+            for content in item.get(
+                "content",
+                []
+            ):
+
+                if content.get(
+                    "type"
+                ) == "output_text":
+
+                    value = content.get(
+                        "text"
+                    )
+
+                    if value:
+
+                        texts.append(
+                            value
+                        )
+
+
+        final_text = "\n".join(
+            texts
+        ).strip()
+
+
+        if final_text:
+
+            return (
+                True,
+                final_text
+            )
+
+
+        return (
+            False,
+            "لم يتم الحصول على نتيجة نصية من AI."
+        )
+
+
+    except Exception as e:
+
+        print(
+            "OpenAI error:",
+            e
+        )
+
+        return (
+            False,
+            str(e)
+        )
+
+
+# =========================================================
+# بناء مهمة AI
+# =========================================================
+
+def build_ai_prompt(
+    order,
+    lead
+):
+
+    name = lead.get(
         "name",
+        "العميل"
+    )
+
+    problem = lead.get(
+        "problem",
         ""
     )
 
-    client_contact = client.get(
-        "contact",
-        ""
-    )
-
-    client_link = client.get(
+    link = lead.get(
         "link",
         ""
     )
 
-    client_problem = client.get(
-        "problem",
+    service = order.get(
+        "service",
         ""
     )
 
@@ -414,169 +620,168 @@ def call_openai(
 أنت الذكاء الاصطناعي التنفيذي في شركة
 "AI يحلها سوريا".
 
-لديك طلب مدفوع من عميل حقيقي.
+مهمتك تنفيذ الخدمة التي دفع العميل ثمنها.
 
-رقم الطلب:
-{order["id"]}
-
-اسم العميل / النشاط:
-{client_name}
-
-وسيلة التواصل:
-{client_contact}
-
-رابط النشاط:
-{client_link}
+بيانات العميل:
+الاسم: {name}
 
 الخدمة المطلوبة:
 {service}
 
-المشكلة التي وصفها العميل:
-{client_problem}
+مشكلة العميل:
+{problem}
 
-مهمتك:
-حل المشكلة بشكل عملي ومفيد وقابل للتطبيق.
+رابط النشاط إن وجد:
+{link}
 
-لا تكتفِ بنصائح عامة.
+نفّذ العمل بشكل عملي ومفيد، وليس مجرد نصائح عامة.
 
-قم بتحليل المشكلة ثم قدم نتيجة عملية يستطيع العميل استخدامها مباشرة.
+إذا كانت الخدمة:
+- AI محتوى للمطاعم:
+  أنشئ محتوى تسويقي عملي مناسب للمطعم، مثل منشورات وأفكار عروض ونصوص جاهزة للنشر.
 
-إذا كانت الخدمة محتوى:
-أنشئ المحتوى المطلوب بشكل جاهز للاستخدام.
+- AI محتوى المنتجات:
+  أنشئ وصفًا احترافيًا للمنتجات، عناوين تسويقية، منشورات وإعلانات جاهزة.
 
-إذا كانت الخدمة تحليل مشكلة:
-قدم تشخيصًا واضحًا وخطة تنفيذ عملية.
+- AI تنظيم العملاء والردود:
+  أنشئ نظامًا عمليًا للرد على العملاء وتنظيم المحادثات، مع ردود جاهزة وسيناريوهات متابعة.
 
-إذا كانت الخدمة تنظيم العملاء والردود:
-أنشئ نظامًا واضحًا للردود والتنظيم.
+- AI تحليل وحل مشكلة النشاط:
+  حلّل المشكلة بعمق، حدد أسبابها، ثم قدم خطة تنفيذ واضحة خطوة بخطوة.
 
-إذا كانت الخدمة تخص المنتجات:
-أنشئ محتوى تسويقيًا مناسبًا للمنتج.
+لا تدّعِ أنك نفذت شيئًا خارج النص أو أنك دخلت إلى حسابات العميل.
 
-اكتب النتيجة باللغة العربية.
+يجب أن تكون النتيجة جاهزة ليتم تسليمها للعميل.
 
-لا تقل إنك ستقوم بالعمل لاحقًا.
-نفذ المهمة الآن.
-
-في نهاية الإجابة ضع قسمًا بعنوان:
-"النتيجة الجاهزة للعميل"
+اكتب النتيجة باللغة العربية وبأسلوب احترافي واضح.
 """
 
 
-    payload = {
-
-        "model": OPENAI_MODEL,
-
-        "input": prompt
-
-    }
+    return prompt
 
 
-    body = json.dumps(
-        payload,
-        ensure_ascii=False
-    ).encode("utf-8")
+# =========================================================
+# إرسال إشعار AI بدأ العمل
+# =========================================================
 
+def notify_ai_started(
+    order,
+    lead
+):
 
-    req = urllib.request.Request(
-
-        "https://api.openai.com/v1/responses",
-
-        data=body,
-
-        method="POST",
-
-        headers={
-            "Content-Type":
-                "application/json",
-
-            "Authorization":
-                f"Bearer {api_key}"
-        }
-
+    name = lead.get(
+        "name",
+        "غير معروف"
     )
 
 
-    with urllib.request.urlopen(
-        req,
-        timeout=180
-    ) as response:
+    message = f"""
+🚀 بدأ الذكاء الاصطناعي العمل
 
-        raw = response.read().decode(
-            "utf-8"
-        )
+🆔 الطلب:
+{order["id"]}
+
+👤 العميل:
+{name}
+
+🛠 الخدمة:
+{order["service"]}
+
+💵 السعر:
+${order["price_usd"]}
+
+🟡 الحالة:
+processing
+
+🤖 AI يعمل الآن على تنفيذ الطلب.
+"""
 
 
-    result = json.loads(raw)
-
-
-    # Responses API يعيد النص في output_text
-    text = result.get(
-        "output_text"
+    return send_telegram(
+        message
     )
 
 
-    if text:
+# =========================================================
+# إشعار اكتمال AI
+# =========================================================
 
-        return text.strip()
+def notify_ai_completed(
+    order,
+    lead
+):
 
-
-    # احتياط في حال تغيّر شكل الاستجابة
-    output = result.get(
-        "output",
-        []
+    name = lead.get(
+        "name",
+        "غير معروف"
     )
 
 
-    parts = []
+    message = f"""
+🎉 اكتمل تنفيذ الطلب
+
+🆔 الطلب:
+{order["id"]}
+
+👤 العميل:
+{name}
+
+🛠 الخدمة:
+{order["service"]}
+
+💵 السعر:
+${order["price_usd"]}
+
+🟢 الحالة:
+completed
+
+✅ نتيجة AI أصبحت جاهزة للتسليم للعميل.
+"""
 
 
-    for item in output:
-
-        content = item.get(
-            "content",
-            []
-        )
+    return send_telegram(
+        message
+    )
 
 
-        for piece in content:
+# =========================================================
+# إشعار فشل AI
+# =========================================================
 
-            if piece.get("type") in [
-                "output_text",
-                "text"
-            ]:
+def notify_ai_failed(
+    order,
+    error
+):
 
-                piece_text = piece.get(
-                    "text",
-                    ""
-                )
+    message = f"""
+❌ تعذر تنفيذ طلب AI
 
-                if piece_text:
-                    parts.append(
-                        piece_text
-                    )
+🆔 الطلب:
+{order["id"]}
 
+🛠 الخدمة:
+{order["service"]}
 
-    text = "\n".join(
-        parts
-    ).strip()
+⚠️ السبب:
+{error}
 
+الحالة:
+ai_failed
 
-    if not text:
-
-        raise RuntimeError(
-            "لم تصل نتيجة نصية من OpenAI"
-        )
+يمكن إعادة المحاولة من النظام لاحقًا.
+"""
 
 
-    return text
+    return send_telegram(
+        message
+    )
 
 
 # =========================================================
 # تنفيذ AI في الخلفية
 # =========================================================
 
-def run_ai_order(
+def execute_ai_order(
     order_id
 ):
 
@@ -586,11 +791,8 @@ def run_ai_order(
     )
 
 
-    # -----------------------------------------------------
-    # نضع processing أولًا
-    # -----------------------------------------------------
-
     data = db()
+
 
     order = find_order(
         data,
@@ -607,19 +809,21 @@ def run_ai_order(
         return
 
 
-    # حماية من تشغيل نفس الطلب مرتين
-    if order.get("status") in [
-        "completed"
-    ]:
+    # حماية من التنفيذ المكرر
+    if order.get(
+        "status"
+    ) == "completed":
 
         print(
-            "AI worker: order already completed"
+            "AI worker: already completed"
         )
 
         return
 
 
-    if order.get("status") != "processing":
+    if order.get(
+        "status"
+    ) != "processing":
 
         print(
             "AI worker: invalid status:",
@@ -631,198 +835,118 @@ def run_ai_order(
 
     lead = find_lead(
         data,
-        order.get("lead_id")
+        order.get(
+            "lead_id"
+        )
     )
 
 
     if not lead:
 
-        order["status"] = "failed"
-
-        order["error"] = (
-            "العميل المرتبط بالطلب غير موجود"
+        order["status"] = (
+            "ai_failed"
         )
 
-        order["failed_at"] = time.time()
+        order["ai_error"] = (
+            "العميل غير موجود."
+        )
 
         save(data)
 
-        send_telegram(
-            f"""
-❌ فشل تنفيذ AI
-
-🆔 الطلب:
-{order_id}
-
-السبب:
-العميل المرتبط بالطلب غير موجود.
-"""
+        notify_ai_failed(
+            order,
+            "العميل غير موجود."
         )
 
         return
 
 
-    # -----------------------------------------------------
-    # إخبار المالك
-    # -----------------------------------------------------
-
-    send_telegram(
-        f"""
-🚀 بدأ AI العمل الآن
-
-🆔 رقم الطلب:
-{order_id}
-
-🛠 الخدمة:
-{order["service"]}
-
-🤖 الحالة:
-processing
-
-سيتم إرسال إشعار عند انتهاء التنفيذ.
-"""
+    prompt = build_ai_prompt(
+        order,
+        lead
     )
 
 
-    try:
+    ok, result = openai_request(
+        prompt
+    )
 
-        # -------------------------------------------------
-        # تنفيذ AI الحقيقي
-        # -------------------------------------------------
 
-        result_text = call_openai(
-            order["service"],
-            lead,
-            order
+    # إعادة قراءة البيانات حتى لا نكتب فوق تغييرات حديثة
+    data = db()
+
+    order = find_order(
+        data,
+        order_id
+    )
+
+
+    if not order:
+
+        return
+
+
+    if not ok:
+
+        order["status"] = (
+            "ai_failed"
         )
 
-
-        # -------------------------------------------------
-        # حفظ النتيجة
-        # -------------------------------------------------
-
-        data = db()
-
-        order = find_order(
-            data,
-            order_id
+        order["ai_error"] = (
+            result
         )
 
-
-        if not order:
-
-            return
-
-
-        # حماية إضافية
-        if order.get("status") == "completed":
-
-            return
-
-
-        order["result"] = result_text
-
-        order["status"] = "completed"
-
-        order["completed_at"] = time.time()
-
-        order["ai_model"] = OPENAI_MODEL
-
-
-        # رابط النتيجة سيُستخدم في index.html
-        order["result_token"] = secrets.token_urlsafe(
-            24
+        order["ai_failed_at"] = (
+            time.time()
         )
-
 
         save(data)
 
 
-        # -------------------------------------------------
-        # إشعار النجاح
-        # -------------------------------------------------
-
-        send_telegram(
-            f"""
-🎉 اكتمل تنفيذ AI
-
-🆔 رقم الطلب:
-{order_id}
-
-🛠 الخدمة:
-{order["service"]}
-
-✅ الحالة:
-completed
-
-🤖 تم إنشاء النتيجة بنجاح.
-
-يمكن للعميل الآن استلام النتيجة من صفحة طلبه.
-"""
+        notify_ai_failed(
+            order,
+            result
         )
 
-
-        print(
-            "AI worker completed:",
-            order_id
-        )
+        return
 
 
-    except Exception as e:
+    # حفظ النتيجة
+    order["result"] = result
 
-        print(
-            "AI execution error:",
-            e
-        )
+    order["status"] = (
+        "completed"
+    )
 
+    order["completed_at"] = (
+        time.time()
+    )
 
-        data = db()
-
-        order = find_order(
-            data,
-            order_id
-        )
-
-
-        if not order:
-
-            return
+    order["ai_model"] = (
+        OPENAI_MODEL
+    )
 
 
-        order["status"] = "failed"
-
-        order["error"] = str(e)
-
-        order["failed_at"] = time.time()
+    save(data)
 
 
-        save(data)
+    notify_ai_completed(
+        order,
+        lead
+    )
 
 
-        send_telegram(
-            f"""
-❌ حدث خطأ أثناء تنفيذ AI
-
-🆔 رقم الطلب:
-{order_id}
-
-الخدمة:
-{order["service"]}
-
-الحالة:
-failed
-
-الخطأ:
-{str(e)[:500]}
-"""
-        )
+    print(
+        "AI worker completed:",
+        order_id
+    )
 
 
 # =========================================================
-# تشغيل AI مرة واحدة فقط
+# تشغيل AI بعد تأكيد الدفع
 # =========================================================
 
-def start_ai_once(
+def start_ai_for_order(
     order_id
 ):
 
@@ -839,28 +963,29 @@ def start_ai_once(
         return False
 
 
-    # إذا بدأ أو انتهى بالفعل
-    if order.get("status") in [
-
+    # حماية قوية من التكرار
+    if order.get(
+        "status"
+    ) in [
         "processing",
-
         "completed"
-
     ]:
 
         return False
 
 
-    if order.get("status") != (
-        "payment_submitted"
-    ):
+    if order.get(
+        "status"
+    ) != "payment_submitted":
 
         return False
 
 
-    order["status"] = "processing"
+    order["status"] = (
+        "processing"
+    )
 
-    order["processing_started_at"] = (
+    order["ai_started_at"] = (
         time.time()
     )
 
@@ -868,18 +993,30 @@ def start_ai_once(
     save(data)
 
 
-    # تشغيل العامل في الخلفية
-    worker = threading.Thread(
-
-        target=run_ai_order,
-
-        args=(order_id,),
-
-        daemon=True
-
+    lead = find_lead(
+        data,
+        order.get(
+            "lead_id"
+        )
     )
 
-    worker.start()
+
+    if lead:
+
+        notify_ai_started(
+            order,
+            lead
+        )
+
+
+    # تشغيل العامل في الخلفية
+    thread = threading.Thread(
+        target=execute_ai_order,
+        args=(order_id,),
+        daemon=True
+    )
+
+    thread.start()
 
 
     return True
@@ -899,7 +1036,7 @@ def home():
 
 
 # =========================================================
-# لوحة الإدارة
+# لوحة الإدارة الحالية
 # =========================================================
 
 @app.get("/admin")
@@ -912,13 +1049,18 @@ def admin():
 
 
 # =========================================================
-# QR
+# QR شام كاش
 # =========================================================
 
 @app.get("/qr")
 def qr():
 
-    if not Path(QR_FILE).exists():
+    qr_path = Path(
+        QR_FILE
+    )
+
+
+    if not qr_path.exists():
 
         return jsonify(
             {
@@ -954,7 +1096,7 @@ def services():
 # =========================================================
 
 @app.post("/api/lead")
-def create_lead():
+def lead():
 
     data = db()
 
@@ -962,22 +1104,34 @@ def create_lead():
 
 
     name = str(
-        body.get("name", "")
+        body.get(
+            "name",
+            ""
+        )
     ).strip()
 
 
     contact = str(
-        body.get("contact", "")
+        body.get(
+            "contact",
+            ""
+        )
     ).strip()
 
 
     problem = str(
-        body.get("problem", "")
+        body.get(
+            "problem",
+            ""
+        )
     ).strip()
 
 
     link = str(
-        body.get("link", "")
+        body.get(
+            "link",
+            ""
+        )
     ).strip()
 
 
@@ -995,18 +1149,24 @@ def create_lead():
     now = time.time()
 
 
-    # منع التكرار خلال 10 دقائق
+    # منع التكرار لمدة 10 دقائق
     for old in data["leads"]:
 
         if (
 
             old.get("name") == name
 
-            and old.get("contact") == contact
+            and
 
-            and old.get("problem") == problem
+            old.get("contact") == contact
 
-            and now - old.get(
+            and
+
+            old.get("problem") == problem
+
+            and
+
+            now - old.get(
                 "created_at",
                 0
             ) < 600
@@ -1033,19 +1193,26 @@ def create_lead():
 
     new_lead = {
 
-        "id": lead_id,
+        "id":
+            lead_id,
 
-        "name": name,
+        "name":
+            name,
 
-        "contact": contact,
+        "contact":
+            contact,
 
-        "problem": problem,
+        "problem":
+            problem,
 
-        "link": link,
+        "link":
+            link,
 
-        "status": "new",
+        "status":
+            "new",
 
-        "created_at": now
+        "created_at":
+            now
 
     }
 
@@ -1071,7 +1238,7 @@ def create_lead():
 # =========================================================
 
 @app.post("/api/order")
-def create_order():
+def order():
 
     data = db()
 
@@ -1132,6 +1299,10 @@ def create_order():
 
         "payment_submitted",
 
+        "payment_verified_manual",
+
+        "ready_for_ai",
+
         "processing",
 
         "completed"
@@ -1139,16 +1310,26 @@ def create_order():
     ]
 
 
+    # منع الطلب نفسه مرتين
     for old in data["orders"]:
 
         if (
 
-            old.get("lead_id") == lead_id
+            old.get(
+                "lead_id"
+            ) == lead_id
 
-            and old.get("service") == service
+            and
 
-            and old.get("status")
-            in active_statuses
+            old.get(
+                "service"
+            ) == service
+
+            and
+
+            old.get(
+                "status"
+            ) in active_statuses
 
         ):
 
@@ -1172,11 +1353,7 @@ def create_order():
                         old["price_usd"],
 
                     "status":
-                        old["status"],
-
-                    "result":
-                        old.get("result")
-
+                        old["status"]
                 }
             )
 
@@ -1259,7 +1436,7 @@ def create_order():
 
 
 # =========================================================
-# العميل يقول دفعت
+# العميل يقول: دفعت
 # =========================================================
 
 @app.post("/api/paid")
@@ -1268,6 +1445,7 @@ def paid():
     data = db()
 
     body = request.json or {}
+
 
     order_id = body.get(
         "order_id"
@@ -1302,9 +1480,16 @@ def paid():
         ), 404
 
 
-    if order.get("status") in [
+    # إذا تم إرسال الدفع سابقًا
+    if order.get(
+        "status"
+    ) in [
 
         "payment_submitted",
+
+        "payment_verified_manual",
+
+        "ready_for_ai",
 
         "processing",
 
@@ -1319,27 +1504,13 @@ def paid():
                 "already_submitted":
                     True,
 
+                "telegram_sent":
+                    True,
+
                 "order":
                     order
             }
         )
-
-
-    if order.get("status") != (
-        "awaiting_payment"
-    ):
-
-        return jsonify(
-            {
-                "ok": False,
-
-                "error":
-                    "لا يمكن إرسال هذا الطلب للمراجعة حاليًا",
-
-                "order":
-                    order
-            }
-        ), 400
 
 
     order["status"] = (
@@ -1360,11 +1531,42 @@ def paid():
     save(data)
 
 
-    telegram_sent = (
-        send_payment_notification(
-            order,
-            client
+    # إرسال رسالة Telegram مع زر التأكيد
+    telegram_sent = send_telegram(
+
+        f"""
+🔔 طلب دفع جديد
+
+🆔 رقم الطلب:
+{order["id"]}
+
+🛠 الخدمة:
+{order["service"]}
+
+💵 السعر:
+${order["price_usd"]}
+
+👤 العميل:
+{client.get("name", "غير معروف") if client else "غير معروف"}
+
+📞 التواصل:
+{client.get("contact", "غير معروف") if client else "غير معروف"}
+
+📝 المشكلة:
+{client.get("problem", "غير معروف") if client else "غير معروف"}
+
+⚠️ العميل ضغط "دفعت".
+
+تحقق يدويًا من وصول المبلغ في شام كاش.
+
+بعد التأكد اضغط:
+✅ تأكيد استلام الدفع
+""",
+
+        payment_confirmation_keyboard(
+            order["id"]
         )
+
     )
 
 
@@ -1395,6 +1597,7 @@ def verify():
 
     body = request.json or {}
 
+
     order_id = body.get(
         "order_id"
     )
@@ -1428,13 +1631,10 @@ def verify():
         ), 404
 
 
-    if order.get("status") in [
-
-        "processing",
-
-        "completed"
-
-    ]:
+    # إذا كان AI يعمل بالفعل
+    if order.get(
+        "status"
+    ) == "processing":
 
         return jsonify(
             {
@@ -1445,16 +1645,49 @@ def verify():
         )
 
 
-    if order.get("status") != (
-        "payment_submitted"
-    ):
+    # إذا اكتمل
+    if order.get(
+        "status"
+    ) == "completed":
+
+        return jsonify(
+            {
+                "ok": True,
+                "order":
+                    order
+            }
+        )
+
+
+    # إذا أكد سابقًا
+    if order.get(
+        "status"
+    ) == "ready_for_ai":
+
+        return jsonify(
+            {
+                "ok": True,
+
+                "already_verified":
+                    True,
+
+                "order":
+                    order
+            }
+        )
+
+
+    # يجب أن يكون العميل قد ضغط دفعت
+    if order.get(
+        "status"
+    ) != "payment_submitted":
 
         return jsonify(
             {
                 "ok": False,
 
                 "error":
-                    "الطلب ليس بانتظار تأكيد الدفع",
+                    "لا يمكن تأكيد الدفع في الحالة الحالية.",
 
                 "order":
                     order
@@ -1462,36 +1695,49 @@ def verify():
         ), 400
 
 
-    # نفس العملية التي ينفذها زر Telegram
-    started = start_ai_once(
-        order_id
+    # نقل الطلب مباشرة إلى processing
+    order["status"] = (
+        "processing"
+    )
+
+    order["payment_verified_at"] = (
+        time.time()
+    )
+
+    order["payment_verified_source"] = (
+        "admin"
+    )
+
+    order["ai_started_at"] = (
+        time.time()
     )
 
 
-    if not started:
-
-        data = db()
-
-        order = find_order(
-            data,
-            order_id
-        )
-
-        return jsonify(
-            {
-                "ok": True,
-                "order":
-                    order
-            }
-        )
+    save(data)
 
 
-    data = db()
-
-    order = find_order(
+    lead = find_lead(
         data,
-        order_id
+        order["lead_id"]
     )
+
+
+    if lead:
+
+        notify_ai_started(
+            order,
+            lead
+        )
+
+
+    # تشغيل AI
+    thread = threading.Thread(
+        target=execute_ai_order,
+        args=(order["id"],),
+        daemon=True
+    )
+
+    thread.start()
 
 
     return jsonify(
@@ -1524,6 +1770,7 @@ def telegram_webhook():
     )
 
 
+    # Telegram يرسل أنواعًا أخرى من التحديثات
     if not callback:
 
         return jsonify(
@@ -1537,23 +1784,21 @@ def telegram_webhook():
         "id"
     )
 
+
     callback_data = callback.get(
         "data",
         ""
     )
 
 
-    answer_callback(
-        callback_id
-    )
-
-
-    prefix = "confirm_payment:"
-
-
     if not callback_data.startswith(
-        prefix
+        "confirm_payment:"
     ):
+
+        answer_callback(
+            callback_id,
+            "هذا الزر غير معروف."
+        )
 
         return jsonify(
             {
@@ -1562,12 +1807,20 @@ def telegram_webhook():
         )
 
 
+    # رقم الطلب
     order_id = callback_data[
-        len(prefix):
+        len("confirm_payment:"):
     ]
 
 
+    answer_callback(
+        callback_id,
+        "جارٍ تأكيد الدفع وبدء AI..."
+    )
+
+
     data = db()
+
 
     order = find_order(
         data,
@@ -1579,49 +1832,10 @@ def telegram_webhook():
 
         send_telegram(
             f"""
-❌ تعذر العثور على الطلب
+❌ تعذر تأكيد الدفع
 
-🆔 {order_id}
-"""
-        )
+الطلب غير موجود:
 
-        return jsonify(
-            {
-                "ok": True
-            }
-        )
-
-
-    # إذا بدأ AI بالفعل
-    if order.get("status") == "processing":
-
-        send_telegram(
-            f"""
-ℹ️ AI يعمل بالفعل
-
-🆔 الطلب:
-{order_id}
-
-الحالة:
-processing
-"""
-        )
-
-        return jsonify(
-            {
-                "ok": True
-            }
-        )
-
-
-    # إذا انتهى
-    if order.get("status") == "completed":
-
-        send_telegram(
-            f"""
-ℹ️ الطلب مكتمل بالفعل
-
-🆔 الطلب:
 {order_id}
 """
         )
@@ -1633,16 +1847,51 @@ processing
         )
 
 
-    # الزر لا يعمل إلا بعد أن يقول العميل "دفعت"
-    if order.get("status") != (
-        "payment_submitted"
-    ):
+    # منع الضغط مرتين
+    if order.get(
+        "status"
+    ) in [
+
+        "processing",
+
+        "completed"
+
+    ]:
+
+        remove_telegram_button(
+            callback
+        )
+
 
         send_telegram(
             f"""
-⚠️ لا يمكن بدء AI لهذا الطلب الآن
+ℹ️ هذا الطلب تمت معالجته مسبقًا
 
-🆔 {order_id}
+🆔 {order["id"]}
+
+الحالة الحالية:
+{order["status"]}
+"""
+        )
+
+
+        return jsonify(
+            {
+                "ok": True
+            }
+        )
+
+
+    # لا يمكن التأكيد قبل ضغط العميل دفعت
+    if order.get(
+        "status"
+    ) != "payment_submitted":
+
+        send_telegram(
+            f"""
+⚠️ لا يمكن تأكيد الطلب الآن
+
+🆔 {order["id"]}
 
 الحالة:
 {order.get("status")}
@@ -1652,6 +1901,7 @@ processing
 """
         )
 
+
         return jsonify(
             {
                 "ok": True
@@ -1659,55 +1909,75 @@ processing
         )
 
 
-    # -----------------------------------------------------
-    # بدء AI الحقيقي
-    # -----------------------------------------------------
+    # =====================================================
+    # تأكيد الدفع + بدء AI
+    # =====================================================
 
-    started = start_ai_once(
-        order_id
+    order["status"] = (
+        "processing"
+    )
+
+    order["payment_verified_at"] = (
+        time.time()
+    )
+
+    order["payment_verified_source"] = (
+        "telegram_button"
+    )
+
+    order["ai_started_at"] = (
+        time.time()
     )
 
 
-    if started:
+    save(data)
 
-        send_telegram(
-            f"""
-🚀 بدأ AI العمل
+
+    # إزالة زر التأكيد حتى لا يتم الضغط عليه مرة أخرى
+    remove_telegram_button(
+        callback
+    )
+
+
+    lead = find_lead(
+        data,
+        order["lead_id"]
+    )
+
+
+    # إشعار واضح لك
+    send_telegram(
+        f"""
+🚀 بدأ AI العمل الآن
 
 🆔 رقم الطلب:
-{order_id}
+{order["id"]}
 
 🛠 الخدمة:
 {order["service"]}
 
-🟡 الحالة:
+👤 العميل:
+{lead.get("name", "غير معروف") if lead else "غير معروف"}
+
+💵 السعر:
+${order["price_usd"]}
+
+🟢 الحالة:
 processing
 
-🤖 الذكاء الاصطناعي يعمل الآن على حل مشكلة العميل.
-
-سأرسل لك إشعارًا عند اكتمال النتيجة.
+🤖 تم تأكيد الدفع وبدأ تنفيذ الطلب فعليًا.
 """
-        )
+    )
 
-    else:
 
-        data = db()
+    # تشغيل AI بالخلفية
+    thread = threading.Thread(
+        target=execute_ai_order,
+        args=(order["id"],),
+        daemon=True
+    )
 
-        order = find_order(
-            data,
-            order_id
-        )
-
-        send_telegram(
-            f"""
-ℹ️ لم يتم بدء الطلب
-
-🆔 {order_id}
-
-الحالة الحالية:
-{order.get("status") if order else "غير معروف"}
-"""
-        )
+    thread.start()
 
 
     return jsonify(
@@ -1722,11 +1992,10 @@ processing
 # =========================================================
 
 @app.get("/api/order/<order_id>")
-def get_order_status(
-    order_id
-):
+def order_status(order_id):
 
     data = db()
+
 
     order = find_order(
         data,
@@ -1752,37 +2021,25 @@ def get_order_status(
             "order": {
 
                 "id":
-                    order.get("id"),
+                    order["id"],
 
                 "service":
-                    order.get("service"),
+                    order["service"],
 
                 "price_usd":
-                    order.get(
-                        "price_usd"
-                    ),
+                    order["price_usd"],
 
                 "status":
-                    order.get(
-                        "status"
-                    ),
+                    order["status"],
 
                 "result":
                     order.get(
                         "result"
-                    ) if order.get(
-                        "status"
-                    ) == "completed"
-                    else None,
-
-                "created_at":
-                    order.get(
-                        "created_at"
                     ),
 
-                "processing_started_at":
+                "ai_started_at":
                     order.get(
-                        "processing_started_at"
+                        "ai_started_at"
                     ),
 
                 "completed_at":
@@ -1793,216 +2050,6 @@ def get_order_status(
             }
         }
     )
-
-
-# =========================================================
-# صفحة النتيجة
-# =========================================================
-
-@app.get("/result/<order_id>")
-def result_page(
-    order_id
-):
-
-    data = db()
-
-    order = find_order(
-        data,
-        order_id
-    )
-
-
-    if not order:
-
-        return """
-        <!doctype html>
-        <html lang="ar" dir="rtl">
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport"
-        content="width=device-width,initial-scale=1">
-        <title>الطلب غير موجود</title>
-        </head>
-        <body style="font-family:Arial;padding:30px">
-        <h2>❌ الطلب غير موجود</h2>
-        </body>
-        </html>
-        """, 404
-
-
-    status = order.get(
-        "status"
-    )
-
-
-    if status != "completed":
-
-        return f"""
-        <!doctype html>
-        <html lang="ar" dir="rtl">
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport"
-        content="width=device-width,initial-scale=1">
-        <title>حالة الطلب</title>
-
-        <style>
-        body {{
-            font-family:Arial;
-            background:#f5f7fb;
-            padding:20px;
-        }}
-
-        .box {{
-            max-width:700px;
-            margin:auto;
-            background:white;
-            padding:25px;
-            border-radius:15px;
-        }}
-
-        .status {{
-            padding:18px;
-            border-radius:10px;
-            background:#fff4ce;
-        }}
-        </style>
-
-        </head>
-
-        <body>
-
-        <div class="box">
-
-        <h1>🤖 AI يحلها سوريا</h1>
-
-        <h2>طلبك قيد التنفيذ</h2>
-
-        <p>
-        🆔 رقم الطلب:
-        <b>{order_id}</b>
-        </p>
-
-        <div class="status">
-
-        🟡
-        {"جاري تنفيذ طلبك بواسطة الذكاء الاصطناعي." 
-        if status == "processing"
-        else
-        "بانتظار تأكيد الدفع."}
-
-        </div>
-
-        <p>
-        يمكنك إبقاء هذه الصفحة مفتوحة،
-        وسيتم تحديث حالة الطلب تلقائيًا في النسخة القادمة من الواجهة.
-        </p>
-
-        </div>
-
-        </body>
-        </html>
-        """
-
-
-    result = order.get(
-        "result",
-        ""
-    )
-
-
-    # حماية HTML
-    safe_result = (
-        result
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
-    return f"""
-    <!doctype html>
-
-    <html lang="ar" dir="rtl">
-
-    <head>
-
-    <meta charset="utf-8">
-
-    <meta name="viewport"
-    content="width=device-width,initial-scale=1">
-
-    <title>نتيجة الطلب</title>
-
-    <style>
-
-    body {{
-        font-family:Arial;
-        background:#f5f7fb;
-        padding:20px;
-    }}
-
-    .box {{
-        max-width:800px;
-        margin:auto;
-        background:white;
-        padding:25px;
-        border-radius:15px;
-    }}
-
-    .success {{
-        background:#e8f7ee;
-        padding:15px;
-        border-radius:10px;
-    }}
-
-    .result {{
-        margin-top:20px;
-        padding:20px;
-        background:#f8fafc;
-        border-radius:10px;
-        white-space:pre-wrap;
-        line-height:1.8;
-    }}
-
-    </style>
-
-    </head>
-
-    <body>
-
-    <div class="box">
-
-    <h1>🤖 AI يحلها سوريا</h1>
-
-    <div class="success">
-
-    🎉 تم إنجاز طلبك بنجاح.
-
-    </div>
-
-    <p>
-    🆔 رقم الطلب:
-    <b>{order_id}</b>
-    </p>
-
-    <p>
-    🛠 الخدمة:
-    <b>{order["service"]}</b>
-    </p>
-
-    <h2>📄 النتيجة</h2>
-
-    <div class="result">
-    {safe_result}
-    </div>
-
-    </div>
-
-    </body>
-
-    </html>
-    """
 
 
 # =========================================================
@@ -2018,7 +2065,7 @@ def admin_api():
 
 
 # =========================================================
-# فحص صحة النظام
+# صحة النظام
 # =========================================================
 
 @app.get("/health")
@@ -2026,20 +2073,23 @@ def health():
 
     return jsonify(
         {
-            "ok": True,
+            "ok":
+                True,
 
             "service":
                 "AI يحلها سوريا",
-
-            "qr":
-                Path(
-                    QR_FILE
-                ).exists(),
 
             "telegram":
                 bool(
                     os.getenv(
                         "TELEGRAM_BOT_TOKEN"
+                    )
+                ),
+
+            "telegram_chat":
+                bool(
+                    os.getenv(
+                        "TELEGRAM_CHAT_ID"
                     )
                 ),
 
@@ -2050,91 +2100,37 @@ def health():
                     )
                 ),
 
-            "model":
-                OPENAI_MODEL
+            "openai_model":
+                OPENAI_MODEL,
+
+            "qr":
+                Path(
+                    QR_FILE
+                ).exists()
         }
     )
 
 
 # =========================================================
-# Telegram Webhook
+# إعداد Telegram عند تحميل التطبيق
 # =========================================================
 
-def setup_telegram_webhook():
+try:
 
-    token = os.getenv(
-        "TELEGRAM_BOT_TOKEN"
+    setup_telegram_webhook()
+
+except Exception as e:
+
+    print(
+        "Webhook startup error:",
+        e
     )
-
-    if not token:
-
-        print(
-            "Webhook: Telegram token missing"
-        )
-
-        return
-
-
-    app_url = os.getenv(
-        "RENDER_EXTERNAL_URL"
-    )
-
-
-    if not app_url:
-
-        app_url = os.getenv(
-            "APP_URL"
-        )
-
-
-    if not app_url:
-
-        print(
-            "Webhook: APP_URL missing"
-        )
-
-        return
-
-
-    app_url = app_url.rstrip("/")
-
-
-    webhook_url = (
-        app_url +
-        "/telegram/webhook"
-    )
-
-
-    ok, result = telegram_request(
-
-        "setWebhook",
-
-        {
-            "url":
-                webhook_url
-        }
-
-    )
-
-
-    if ok:
-
-        print(
-            "Telegram webhook configured:",
-            webhook_url
-        )
-
-    else:
-
-        print(
-            "Telegram webhook failed:",
-            result
-        )
 
 
 # =========================================================
-# التشغيل
+# التشغيل المحلي
 # =========================================================
+
 if __name__ == "__main__":
 
     port = int(
@@ -2143,6 +2139,7 @@ if __name__ == "__main__":
             5000
         )
     )
+
 
     app.run(
         host="0.0.0.0",
