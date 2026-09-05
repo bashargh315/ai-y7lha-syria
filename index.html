@@ -93,6 +93,13 @@ button:disabled{
     margin-top:15px;
 }
 
+.processing{
+    background:#eef4ff;
+    padding:16px;
+    border-radius:9px;
+    margin-top:15px;
+}
+
 .qr-box{
     text-align:center;
     margin:20px 0;
@@ -113,6 +120,26 @@ button:disabled{
     padding:12px;
     border-radius:9px;
     margin:12px 0;
+    word-break:break-word;
+}
+
+.result-box{
+    background:#f8fafc;
+    border:1px solid #dbe3ee;
+    border-radius:12px;
+    padding:18px;
+    margin-top:15px;
+    white-space:pre-wrap;
+    line-height:1.8;
+}
+
+.status{
+    display:inline-block;
+    padding:7px 12px;
+    border-radius:20px;
+    background:#eef2f6;
+    margin:5px 0;
+    font-weight:bold;
 }
 
 table{
@@ -201,10 +228,11 @@ placeholder="اشرح المشكلة بالتفصيل"
 
 </div>
 
-
 <div id="result" class="card hidden"></div>
 
 <div id="payment" class="card hidden"></div>
+
+<div id="tracking" class="card hidden"></div>
 
 </section>
 
@@ -231,6 +259,7 @@ placeholder="اشرح المشكلة بالتفصيل"
 let lead = null;
 let order = null;
 let services = {};
+let trackingTimer = null;
 
 
 /* =========================
@@ -250,8 +279,6 @@ async function loadServices(){
         services = await response.json();
 
     }catch(error){
-
-        /* أسعار احتياطية إذا تعذر الاتصال بالخادم */
 
         services = {
             "AI محتوى للمطاعم":15,
@@ -313,13 +340,11 @@ async function analyze(){
         return;
     }
 
-
     const button =
         document.getElementById("analyzeButton");
 
     button.disabled = true;
     button.innerText = "⏳ جارٍ تحليل الطلب...";
-
 
     try{
 
@@ -340,34 +365,24 @@ async function analyze(){
 
         });
 
-
         if(!response.ok){
-
             throw new Error("lead error");
-
         }
-
 
         lead = await response.json();
 
-
         await loadServices();
-
 
         const service =
             serviceName(problem);
 
-
         const price =
             Number(services[service] ?? 10);
-
 
         const result =
             document.getElementById("result");
 
-
         result.classList.remove("hidden");
-
 
         result.innerHTML = `
 
@@ -395,11 +410,9 @@ async function analyze(){
 
         `;
 
-
         result.scrollIntoView({
             behavior:"smooth"
         });
-
 
     }catch(error){
 
@@ -440,10 +453,8 @@ async function buy(){
         return;
     }
 
-
     const service =
         serviceName(lead.problem);
-
 
     try{
 
@@ -466,24 +477,17 @@ async function buy(){
 
             });
 
-
         if(!response.ok){
-
             throw new Error("order error");
-
         }
-
 
         order =
             await response.json();
 
-
         const payment =
             document.getElementById("payment");
 
-
         payment.classList.remove("hidden");
-
 
         payment.innerHTML = `
 
@@ -502,7 +506,6 @@ async function buy(){
                 أو ما يعادلها بالليرة السورية حسب سعر الصرف.
             </p>
 
-
             <div class="qr-box">
 
                 <p>
@@ -511,10 +514,9 @@ async function buy(){
 
                 <img
                     class="qr"
-    src="/qr"
-    alt="QR شام كاش"
-    onerror="qrError()"
-
+                    src="/qr"
+                    alt="QR شام كاش"
+                    onerror="qrError()"
                 >
 
                 <p class="small">
@@ -522,7 +524,6 @@ async function buy(){
                 </p>
 
             </div>
-
 
             <div class="warn">
 
@@ -540,14 +541,12 @@ async function buy(){
 
             </div>
 
-
             <div class="order-number">
 
                 رقم الطلب:
                 <b>${order.id}</b>
 
             </div>
-
 
             <button
                 id="paidButton"
@@ -556,16 +555,13 @@ async function buy(){
                 💰 دفعت — أرسل للمراجعة
             </button>
 
-
             <div id="paymentMessage"></div>
 
         `;
 
-
         payment.scrollIntoView({
             behavior:"smooth"
         });
-
 
     }catch(error){
 
@@ -619,20 +615,16 @@ function qrError(){
 async function sent(){
 
     if(!order){
-
         return;
     }
 
-
     const button =
         document.getElementById("paidButton");
-
 
     if(button){
         button.disabled = true;
         button.innerText = "⏳ جارٍ إرسال الطلب...";
     }
-
 
     try{
 
@@ -653,21 +645,15 @@ async function sent(){
 
             });
 
-
         const result =
             await response.json();
 
-
         if(!response.ok || !result.ok){
-
             throw new Error("payment error");
-
         }
-
 
         const message =
             document.getElementById("paymentMessage");
-
 
         if(result.already_submitted){
 
@@ -682,24 +668,23 @@ async function sent(){
 
             `;
 
-            return;
+        }else{
+
+            message.innerHTML = `
+
+                <div class="success">
+
+                    ✅ تم إرسال طلب الدفع للمراجعة بنجاح.
+
+                    <br><br>
+
+                    سيتم التحقق من وصول المبلغ قبل بدء تنفيذ الخدمة.
+
+                </div>
+
+            `;
+
         }
-
-
-        message.innerHTML = `
-
-            <div class="success">
-
-                ✅ تم إرسال طلب الدفع للمراجعة بنجاح.
-
-                <br><br>
-
-                سيتم التحقق من وصول المبلغ قبل بدء تنفيذ الخدمة.
-
-            </div>
-
-        `;
-
 
         if(button){
 
@@ -708,6 +693,12 @@ async function sent(){
 
         }
 
+        /*
+         * نبدأ متابعة حالة الطلب.
+         * لن يبدأ Gemini إلا بعد تأكيد الدفع من الإدارة.
+         */
+
+        startTracking();
 
     }catch(error){
 
@@ -720,10 +711,8 @@ async function sent(){
 
         }
 
-
         const message =
             document.getElementById("paymentMessage");
-
 
         message.innerHTML = `
 
@@ -742,6 +731,329 @@ async function sent(){
 
 
 /* =========================
+   متابعة حالة الطلب
+========================= */
+
+function startTracking(){
+
+    if(!order || !order.id){
+        return;
+    }
+
+    if(trackingTimer){
+        clearInterval(trackingTimer);
+    }
+
+    showTracking(
+        "payment_submitted",
+        "⏳ بانتظار التحقق من الدفع..."
+    );
+
+    checkOrderStatus();
+
+    trackingTimer =
+        setInterval(checkOrderStatus,5000);
+
+}
+
+
+/* =========================
+   فحص حالة الطلب
+========================= */
+
+async function checkOrderStatus(){
+
+    if(!order || !order.id){
+        return;
+    }
+
+    try{
+
+        const response =
+            await fetch(
+                "/api/order/" +
+                encodeURIComponent(order.id),
+                {
+                    cache:"no-store"
+                }
+            );
+
+        if(!response.ok){
+            return;
+        }
+
+        const data =
+            await response.json();
+
+        /*
+         * بعض الإصدارات قد ترجع الطلب داخل order
+         * وبعضها ترجع البيانات مباشرة.
+         */
+
+        const currentOrder =
+            data.order || data;
+
+        const status =
+            currentOrder.status || "";
+
+        const aiResult =
+            currentOrder.result ||
+            data.result ||
+            "";
+
+        if(status === "payment_submitted"){
+
+            showTracking(
+                status,
+                "⏳ تم إرسال الدفع للمراجعة. بانتظار تأكيد الاستلام."
+            );
+
+            return;
+        }
+
+        if(
+            status === "paid" ||
+            status === "confirmed"
+        ){
+
+            showTracking(
+                status,
+                "✅ تم تأكيد الدفع. سيتم بدء تنفيذ طلبك."
+            );
+
+            return;
+        }
+
+        if(status === "processing"){
+
+            showTracking(
+                status,
+                "🤖 Gemini يعمل الآن على تنفيذ طلبك..."
+            );
+
+            return;
+        }
+
+        if(
+            status === "completed" ||
+            status === "ai_completed" ||
+            status === "done"
+        ){
+
+            stopTracking();
+
+            showCompletedResult(
+                aiResult
+            );
+
+            return;
+        }
+
+        if(
+            status === "ai_failed" ||
+            status === "failed" ||
+            status === "error"
+        ){
+
+            stopTracking();
+
+            showFailedResult(
+                currentOrder.error ||
+                data.error ||
+                "تعذر تنفيذ الطلب حاليًا."
+            );
+
+            return;
+        }
+
+        /*
+         * إذا كانت النتيجة موجودة حتى لو كان اسم الحالة
+         * مختلفًا، نعرضها مباشرة.
+         */
+
+        if(aiResult){
+
+            stopTracking();
+
+            showCompletedResult(
+                aiResult
+            );
+
+        }
+
+    }catch(error){
+
+        /*
+         * لا نعرض خطأ للعميل بسبب فشل اتصال مؤقت.
+         * ستتم المحاولة تلقائيًا بعد 5 ثوانٍ.
+         */
+
+    }
+
+}
+
+
+/* =========================
+   عرض حالة الطلب
+========================= */
+
+function showTracking(status,text){
+
+    const tracking =
+        document.getElementById("tracking");
+
+    if(!tracking){
+        return;
+    }
+
+    tracking.classList.remove("hidden");
+
+    tracking.innerHTML = `
+
+        <h2>📦 متابعة طلبك</h2>
+
+        <div class="order-number">
+            رقم الطلب:
+            <b>${order ? order.id : ""}</b>
+        </div>
+
+        <div class="processing">
+
+            <div class="status">
+                ${status || "processing"}
+            </div>
+
+            <p>
+                ${text}
+            </p>
+
+            <p class="small">
+                سيتم تحديث الحالة تلقائيًا.
+                لا تحتاج إلى تحديث الصفحة.
+            </p>
+
+        </div>
+
+    `;
+
+}
+
+
+/* =========================
+   النتيجة النهائية
+========================= */
+
+function showCompletedResult(resultText){
+
+    const tracking =
+        document.getElementById("tracking");
+
+    if(!tracking){
+        return;
+    }
+
+    tracking.classList.remove("hidden");
+
+    tracking.innerHTML = `
+
+        <h2>🎉 اكتمل طلبك</h2>
+
+        <div class="success">
+
+            <b>✅ تم تنفيذ الخدمة بنجاح بواسطة Gemini.</b>
+
+        </div>
+
+        <div class="order-number">
+
+            رقم الطلب:
+            <b>${order ? order.id : ""}</b>
+
+        </div>
+
+        <h3>📄 النتيجة</h3>
+
+        <div class="result-box" id="finalResult"></div>
+
+    `;
+
+    const resultBox =
+        document.getElementById("finalResult");
+
+    resultBox.textContent =
+        resultText ||
+        "تم تنفيذ الطلب بنجاح، لكن لم تصل النتيجة النصية.";
+
+    tracking.scrollIntoView({
+        behavior:"smooth"
+    });
+
+}
+
+
+/* =========================
+   فشل التنفيذ
+========================= */
+
+function showFailedResult(errorText){
+
+    const tracking =
+        document.getElementById("tracking");
+
+    if(!tracking){
+        return;
+    }
+
+    tracking.classList.remove("hidden");
+
+    tracking.innerHTML = `
+
+        <h2>⚠️ تعذر تنفيذ الطلب</h2>
+
+        <div class="error">
+
+            ${errorText}
+
+            <br><br>
+
+            يمكن إعادة المحاولة لاحقًا.
+
+        </div>
+
+        <div class="order-number">
+
+            رقم الطلب:
+            <b>${order ? order.id : ""}</b>
+
+        </div>
+
+    `;
+
+    tracking.scrollIntoView({
+        behavior:"smooth"
+    });
+
+}
+
+
+/* =========================
+   إيقاف المتابعة
+========================= */
+
+function stopTracking(){
+
+    if(trackingTimer){
+
+        clearInterval(trackingTimer);
+
+        trackingTimer = null;
+
+    }
+
+}
+
+
+/* =========================
    لوحة الإدارة
 ========================= */
 
@@ -752,25 +1064,18 @@ async function admin(){
         const response =
             await fetch("/api/admin");
 
-
         if(!response.ok){
-
             throw new Error("admin error");
-
         }
-
 
         const data =
             await response.json();
 
-
         const leads =
             data.leads || [];
 
-
         const orders =
             data.orders || [];
-
 
         let leadsHtml =
             leads.map(x => `
@@ -789,7 +1094,6 @@ async function admin(){
 
             `).join("");
 
-
         if(!leadsHtml){
 
             leadsHtml =
@@ -800,8 +1104,8 @@ async function admin(){
                     </td>
                 </tr>
                 `;
-        }
 
+        }
 
         let ordersHtml =
             orders.map(x => `
@@ -843,7 +1147,6 @@ async function admin(){
 
             `).join("");
 
-
         if(!ordersHtml){
 
             ordersHtml =
@@ -854,8 +1157,8 @@ async function admin(){
                     </td>
                 </tr>
                 `;
-        }
 
+        }
 
         document.getElementById("data").innerHTML = `
 
@@ -874,7 +1177,6 @@ async function admin(){
 
             </table>
 
-
             <h3>💰 الطلبات</h3>
 
             <table>
@@ -892,7 +1194,6 @@ async function admin(){
             </table>
 
         `;
-
 
     }catch(error){
 
@@ -934,10 +1235,8 @@ async function verify(id){
 
             });
 
-
         const result =
             await response.json();
-
 
         if(result.ok){
 
@@ -954,7 +1253,6 @@ async function verify(id){
             );
 
         }
-
 
     }catch(error){
 
@@ -980,11 +1278,9 @@ if(location.pathname === "/admin"){
         .getElementById("client")
         .classList.add("hidden");
 
-
     document
         .getElementById("admin")
         .classList.remove("hidden");
-
 
     admin();
 
