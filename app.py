@@ -4,6 +4,7 @@ import time
 import os
 import urllib.request
 import urllib.parse
+import urllib.error
 from pathlib import Path
 import threading
 
@@ -31,9 +32,18 @@ DEFAULT_SERVICES = {
 # إعداد Gemini
 # =========================================================
 
+# نستخدم المتغير الموجود في Render.
+# إذا لم يكن موجودًا، نستخدم النموذج الذي يعمل حاليًا.
 GEMINI_MODEL = os.getenv(
     "GEMINI_MODEL",
-    "gemini-2.5-flash"
+    "gemini-3.6-flash"
+)
+
+# نموذج الصور سنستخدمه لاحقًا بعد تجهيز
+# نظام التسعير والصلاحيات الخاصة بالصور.
+GEMINI_IMAGE_MODEL = os.getenv(
+    "GEMINI_IMAGE_MODEL",
+    "gemini-2.5-flash-image"
 )
 
 
@@ -132,6 +142,99 @@ def find_order(data, order_id):
             return order
 
     return None
+
+
+# =========================================================
+# تحديد نوع المهمة
+# =========================================================
+
+def detect_task_type(problem):
+
+    text = (problem or "").lower()
+
+    image_words = [
+        "صورة",
+        "صور",
+        "تصميم",
+        "تصاميم",
+        "بوستر",
+        "بوست بصورة",
+        "منشور بصورة",
+        "صور للمنتج",
+        "صورة للمنتج",
+        "صور المنتجات",
+        "صورة المنتج",
+        "تصميم إعلان",
+        "اعلان بصورة",
+        "إعلان بصورة",
+        "غلاف",
+        "بنر",
+        "banner",
+        "design",
+        "image",
+        "images",
+        "photo",
+        "photos"
+    ]
+
+    text_words = [
+        "منشور",
+        "منشورات",
+        "محتوى",
+        "كتابة",
+        "اكتب",
+        "نص",
+        "نصوص",
+        "إعلان",
+        "اعلانات",
+        "إعلانات",
+        "سكريبت",
+        "ردود",
+        "رسائل",
+        "مقالات",
+        "خطة"
+    ]
+
+    wants_image = any(
+        word in text
+        for word in image_words
+    )
+
+    wants_text = any(
+        word in text
+        for word in text_words
+    )
+
+    if wants_image and wants_text:
+
+        return "text_image"
+
+    if wants_image:
+
+        return "image"
+
+    return "text"
+
+
+def task_type_label(task_type):
+
+    labels = {
+
+        "text":
+            "📝 نص ومحتوى",
+
+        "image":
+            "🖼️ صور وتصاميم",
+
+        "text_image":
+            "📝🖼️ محتوى + صور"
+
+    }
+
+    return labels.get(
+        task_type,
+        "📝 نص ومحتوى"
+    )
 
 
 # =========================================================
@@ -249,7 +352,6 @@ def answer_callback(
 ):
 
     if not callback_id:
-
         return
 
     telegram_request(
@@ -265,12 +367,10 @@ def answer_callback(
 
 
 # =========================================================
-# إزالة زر التأكيد من Telegram
+# إزالة زر Telegram
 # =========================================================
 
-def remove_telegram_button(
-    callback
-):
+def remove_telegram_button(callback):
 
     try:
 
@@ -279,7 +379,6 @@ def remove_telegram_button(
         )
 
         if not message:
-
             return
 
         chat = message.get(
@@ -296,7 +395,6 @@ def remove_telegram_button(
         )
 
         if not chat_id or not message_id:
-
             return
 
         telegram_request(
@@ -329,9 +427,7 @@ def remove_telegram_button(
 # زر تأكيد الدفع
 # =========================================================
 
-def payment_confirmation_keyboard(
-    order_id
-):
+def payment_confirmation_keyboard(order_id):
 
     return {
 
@@ -365,7 +461,6 @@ def get_app_url():
     )
 
     if render_url:
-
         return render_url.rstrip("/")
 
     app_url = os.getenv(
@@ -373,7 +468,6 @@ def get_app_url():
     )
 
     if app_url:
-
         return app_url.rstrip("/")
 
     return (
@@ -475,7 +569,7 @@ def gemini_request(prompt):
                 0.7,
 
             "maxOutputTokens":
-                4000
+                6000
 
         }
 
@@ -623,10 +717,7 @@ def gemini_request(prompt):
 # بناء مهمة AI
 # =========================================================
 
-def build_ai_prompt(
-    order,
-    lead
-):
+def build_ai_prompt(order, lead):
 
     name = lead.get(
         "name",
@@ -648,6 +739,55 @@ def build_ai_prompt(
         ""
     )
 
+    task_type = order.get(
+        "task_type",
+        "text"
+    )
+
+    if task_type == "text_image":
+
+        extra_instruction = """
+العميل يريد محتوى + صور/تصاميم.
+
+أنشئ المحتوى النصي بشكل كامل وجاهز للنشر.
+
+ولكل صورة مطلوبة أنشئ:
+1. وصفًا دقيقًا للصورة.
+2. Prompt احترافيًا جاهزًا لمولد الصور.
+3. مقاس الصورة المقترح.
+4. النص الذي يجب أن يظهر على التصميم إن وجد.
+
+مهم:
+لا تقل إنك أنشأت صورة فعلية إذا لم يتم تشغيل مولد الصور.
+أنت الآن مسؤول عن تجهيز المحتوى وPrompts الخاصة بالصور.
+"""
+
+    elif task_type == "image":
+
+        extra_instruction = """
+العميل يريد صورًا أو تصاميم.
+
+جهّز لكل صورة:
+1. وصفًا تفصيليًا.
+2. Prompt احترافيًا جاهزًا لمولد الصور.
+3. المقاس المناسب.
+4. الأسلوب البصري.
+5. الألوان المقترحة.
+6. النص الذي يجب أن يظهر على التصميم إن وجد.
+
+لا تدّعِ أنك أنشأت الصورة فعليًا.
+في هذه المرحلة جهّز مواصفات الصور الجاهزة للتوليد.
+"""
+
+    else:
+
+        extra_instruction = """
+العميل يريد خدمة نصية.
+
+أنشئ النتيجة النهائية جاهزة للاستخدام،
+وليس مجرد أفكار عامة.
+"""
+
     prompt = f"""
 أنت الذكاء الاصطناعي التنفيذي في شركة
 "AI يحلها سوريا".
@@ -657,8 +797,11 @@ def build_ai_prompt(
 بيانات العميل:
 الاسم: {name}
 
-الخدمة المطلوبة:
+الخدمة:
 {service}
+
+نوع المهمة:
+{task_type_label(task_type)}
 
 مشكلة العميل:
 {problem}
@@ -666,56 +809,46 @@ def build_ai_prompt(
 رابط النشاط إن وجد:
 {link}
 
-نفّذ العمل بشكل عملي ومفيد، وليس مجرد نصائح عامة.
+{extra_instruction}
 
-إذا كانت الخدمة:
+قواعد مهمة:
 
-- AI محتوى للمطاعم:
-  أنشئ محتوى تسويقي عملي مناسب للمطعم،
-  مثل منشورات جاهزة، أفكار عروض،
-  نصوص إعلانية وأفكار فيديوهات قصيرة.
+- لا تكرر وصف المشكلة فقط.
+- ابدأ مباشرة بالحل.
+- اجعل النتيجة عملية وقابلة للاستخدام.
+- لا تستخدم placeholders مثل:
+  [اسم المنتج]
+  [اسم المتجر]
+  [السعر]
+  [رابط الواتساب]
+  إلا إذا كانت المعلومة فعلًا غير موجودة.
+- إذا كانت معلومة غير موجودة، أنشئ أفضل صيغة ممكنة دون اختراع معلومات حساسة.
+- لا تدّعِ أنك دخلت إلى حسابات العميل.
+- لا تدّعِ أنك نشرت شيئًا على Facebook أو Instagram.
+- لا تدّعِ أنك أرسلت رسائل للعملاء.
+- لا تدّعِ أنك أنشأت صورًا فعلية إذا لم يتم تشغيل مولد الصور.
+- اكتب بالعربية.
+- استخدم عناوين واضحة.
+- استخدم نقاطًا وترقيمًا.
+- اجعل الناتج مناسبًا للتسليم للعميل.
 
-- AI محتوى المنتجات:
-  أنشئ وصفًا احترافيًا للمنتجات،
-  عناوين تسويقية، منشورات وإعلانات جاهزة،
-  ونقاط بيع قوية.
+إذا طلب العميل عدة منشورات،
+أنشئ المنشورات كاملة، وليس عناوين فقط.
 
-- AI تنظيم العملاء والردود:
-  أنشئ نظامًا عمليًا للرد على العملاء
-  وتنظيم المحادثات، مع ردود جاهزة،
-  وتصنيف العملاء وسيناريوهات متابعة.
+إذا طلب العميل صورًا مع المنشورات،
+اربط كل منشور بمواصفات صورته.
 
-- AI تحليل وحل مشكلة النشاط:
-  حلّل المشكلة بعمق،
-  حدد الأسباب المحتملة،
-  ثم قدم خطة تنفيذ واضحة خطوة بخطوة،
-  مع مؤشرات يمكن استخدامها لقياس التحسن.
-
-لا تدّعِ أنك دخلت إلى حسابات العميل
-أو نفذت إجراءات خارج النص.
-
-يجب أن تكون النتيجة عملية وجاهزة
-ليتم تسليمها للعميل.
-
-اكتب النتيجة باللغة العربية
-وبأسلوب احترافي واضح.
-
-قسّم النتيجة إلى عناوين ونقاط واضحة.
-لا تكرر وصف المشكلة فقط.
-ابدأ مباشرة بالحل والتنفيذ.
+نفّذ المطلوب بأعلى جودة ممكنة.
 """
 
     return prompt
 
 
 # =========================================================
-# إشعار AI بدأ العمل
+# إشعار بدء AI
 # =========================================================
 
-def notify_ai_started(
-    order,
-    lead
-):
+def notify_ai_started(order, lead):
 
     name = lead.get(
         "name",
@@ -734,6 +867,9 @@ def notify_ai_started(
 🛠 الخدمة:
 {order["service"]}
 
+📦 نوع المهمة:
+{task_type_label(order.get("task_type", "text"))}
+
 💵 السعر:
 ${order["price_usd"]}
 
@@ -746,19 +882,14 @@ processing
 الذكاء الاصطناعي يعمل الآن على تنفيذ الطلب.
 """
 
-    return send_telegram(
-        message
-    )
+    return send_telegram(message)
 
 
 # =========================================================
 # إشعار اكتمال AI
 # =========================================================
 
-def notify_ai_completed(
-    order,
-    lead
-):
+def notify_ai_completed(order, lead):
 
     name = lead.get(
         "name",
@@ -777,6 +908,9 @@ def notify_ai_completed(
 🛠 الخدمة:
 {order["service"]}
 
+📦 نوع المهمة:
+{task_type_label(order.get("task_type", "text"))}
+
 💵 السعر:
 ${order["price_usd"]}
 
@@ -786,22 +920,17 @@ Gemini
 🟢 الحالة:
 completed
 
-✅ نتيجة AI أصبحت جاهزة للتسليم للعميل.
+✅ النتيجة أصبحت جاهزة للتسليم للعميل.
 """
 
-    return send_telegram(
-        message
-    )
+    return send_telegram(message)
 
 
 # =========================================================
 # إشعار فشل AI
 # =========================================================
 
-def notify_ai_failed(
-    order,
-    error
-):
+def notify_ai_failed(order, error):
 
     message = f"""
 ❌ تعذر تنفيذ طلب AI
@@ -811,6 +940,9 @@ def notify_ai_failed(
 
 🛠 الخدمة:
 {order["service"]}
+
+📦 نوع المهمة:
+{task_type_label(order.get("task_type", "text"))}
 
 🤖 المحرك:
 Gemini
@@ -824,18 +956,14 @@ ai_failed
 يمكن إعادة المحاولة من النظام لاحقًا.
 """
 
-    return send_telegram(
-        message
-    )
+    return send_telegram(message)
 
 
 # =========================================================
-# تنفيذ AI في الخلفية
+# تنفيذ AI
 # =========================================================
 
-def execute_ai_order(
-    order_id
-):
+def execute_ai_order(order_id):
 
     print(
         "AI worker started:",
@@ -857,10 +985,7 @@ def execute_ai_order(
 
         return
 
-    # حماية من التنفيذ المكرر
-    if order.get(
-        "status"
-    ) == "completed":
+    if order.get("status") == "completed":
 
         print(
             "AI worker: already completed"
@@ -868,9 +993,7 @@ def execute_ai_order(
 
         return
 
-    if order.get(
-        "status"
-    ) != "processing":
+    if order.get("status") != "processing":
 
         print(
             "AI worker: invalid status:",
@@ -881,16 +1004,12 @@ def execute_ai_order(
 
     lead = find_lead(
         data,
-        order.get(
-            "lead_id"
-        )
+        order.get("lead_id")
     )
 
     if not lead:
 
-        order["status"] = (
-            "ai_failed"
-        )
+        order["status"] = "ai_failed"
 
         order["ai_error"] = (
             "العميل غير موجود."
@@ -914,8 +1033,6 @@ def execute_ai_order(
         prompt
     )
 
-    # إعادة قراءة البيانات
-    # حتى لا نكتب فوق تغييرات حديثة
     data = db()
 
     order = find_order(
@@ -924,18 +1041,13 @@ def execute_ai_order(
     )
 
     if not order:
-
         return
 
     if not ok:
 
-        order["status"] = (
-            "ai_failed"
-        )
+        order["status"] = "ai_failed"
 
-        order["ai_error"] = (
-            result
-        )
+        order["ai_error"] = result
 
         order["ai_failed_at"] = (
             time.time()
@@ -950,24 +1062,46 @@ def execute_ai_order(
 
         return
 
+    # =====================================================
     # حفظ النتيجة
+    # =====================================================
+
     order["result"] = result
 
-    order["status"] = (
-        "completed"
-    )
+    order["status"] = "completed"
 
     order["completed_at"] = (
         time.time()
     )
 
-    order["ai_model"] = (
-        GEMINI_MODEL
-    )
+    order["ai_model"] = GEMINI_MODEL
 
-    order["ai_provider"] = (
-        "gemini"
-    )
+    order["ai_provider"] = "gemini"
+
+    # نوع المهمة
+    if "task_type" not in order:
+        order["task_type"] = "text"
+
+    # الصور:
+    # نحتفظ بهذه المعلومة حتى نربط مولد الصور لاحقًا.
+    if order["task_type"] in [
+        "image",
+        "text_image"
+    ]:
+
+        order["image_generation"] = {
+            "required": True,
+            "generated": False,
+            "status": "waiting_for_image_engine"
+        }
+
+    else:
+
+        order["image_generation"] = {
+            "required": False,
+            "generated": False,
+            "status": "not_required"
+        }
 
     save(data)
 
@@ -986,9 +1120,7 @@ def execute_ai_order(
 # تشغيل AI بعد تأكيد الدفع
 # =========================================================
 
-def start_ai_for_order(
-    order_id
-):
+def start_ai_for_order(order_id):
 
     data = db()
 
@@ -998,28 +1130,20 @@ def start_ai_for_order(
     )
 
     if not order:
-
         return False
 
-    # حماية قوية من التكرار
-    if order.get(
-        "status"
-    ) in [
+    if order.get("status") in [
         "processing",
         "completed"
     ]:
 
         return False
 
-    if order.get(
-        "status"
-    ) != "payment_submitted":
+    if order.get("status") != "payment_submitted":
 
         return False
 
-    order["status"] = (
-        "processing"
-    )
+    order["status"] = "processing"
 
     order["ai_started_at"] = (
         time.time()
@@ -1029,9 +1153,7 @@ def start_ai_for_order(
 
     lead = find_lead(
         data,
-        order.get(
-            "lead_id"
-        )
+        order.get("lead_id")
     )
 
     if lead:
@@ -1041,7 +1163,6 @@ def start_ai_for_order(
             lead
         )
 
-    # تشغيل العامل في الخلفية
     thread = threading.Thread(
         target=execute_ai_order,
         args=(order_id,),
@@ -1067,7 +1188,7 @@ def home():
 
 
 # =========================================================
-# لوحة الإدارة الحالية
+# الإدارة
 # =========================================================
 
 @app.get("/admin")
@@ -1132,31 +1253,19 @@ def lead():
     body = request.json or {}
 
     name = str(
-        body.get(
-            "name",
-            ""
-        )
+        body.get("name", "")
     ).strip()
 
     contact = str(
-        body.get(
-            "contact",
-            ""
-        )
+        body.get("contact", "")
     ).strip()
 
     problem = str(
-        body.get(
-            "problem",
-            ""
-        )
+        body.get("problem", "")
     ).strip()
 
     link = str(
-        body.get(
-            "link",
-            ""
-        )
+        body.get("link", "")
     ).strip()
 
     if not name or not contact or not problem:
@@ -1171,7 +1280,6 @@ def lead():
 
     now = time.time()
 
-    # منع التكرار لمدة 10 دقائق
     for old in data["leads"]:
 
         if (
@@ -1304,6 +1412,13 @@ def order():
             }
         ), 404
 
+    task_type = detect_task_type(
+        lead.get(
+            "problem",
+            ""
+        )
+    )
+
     active_statuses = [
 
         "awaiting_payment",
@@ -1320,26 +1435,20 @@ def order():
 
     ]
 
-    # منع الطلب نفسه مرتين
     for old in data["orders"]:
 
         if (
 
-            old.get(
-                "lead_id"
-            ) == lead_id
+            old.get("lead_id") == lead_id
 
             and
 
-            old.get(
-                "service"
-            ) == service
+            old.get("service") == service
 
             and
 
-            old.get(
-                "status"
-            ) in active_statuses
+            old.get("status")
+            in active_statuses
 
         ):
 
@@ -1363,7 +1472,14 @@ def order():
                         old["price_usd"],
 
                     "status":
-                        old["status"]
+                        old["status"],
+
+                    "task_type":
+                        old.get(
+                            "task_type",
+                            "text"
+                        )
+
                 }
             )
 
@@ -1403,6 +1519,37 @@ def order():
         "status":
             "awaiting_payment",
 
+        "task_type":
+            task_type,
+
+        "task_type_label":
+            task_type_label(
+                task_type
+            ),
+
+        "image_generation":
+            {
+                "required":
+                    task_type in [
+                        "image",
+                        "text_image"
+                    ],
+
+                "generated":
+                    False,
+
+                "status":
+                    (
+                        "waiting_for_image_engine"
+                        if task_type in [
+                            "image",
+                            "text_image"
+                        ]
+                        else
+                        "not_required"
+                    )
+            },
+
         "created_at":
             time.time()
 
@@ -1434,7 +1581,16 @@ def order():
                 price,
 
             "status":
-                "awaiting_payment"
+                "awaiting_payment",
+
+            "task_type":
+                task_type,
+
+            "task_type_label":
+                task_type_label(
+                    task_type
+                )
+
         }
     )
 
@@ -1479,10 +1635,7 @@ def paid():
             }
         ), 404
 
-    # إذا تم إرسال الدفع سابقًا
-    if order.get(
-        "status"
-    ) in [
+    if order.get("status") in [
 
         "payment_submitted",
 
@@ -1537,6 +1690,9 @@ def paid():
 🛠 الخدمة:
 {order["service"]}
 
+📦 نوع المهمة:
+{task_type_label(order.get("task_type", "text"))}
+
 💵 السعر:
 ${order["price_usd"]}
 
@@ -1580,7 +1736,7 @@ ${order["price_usd"]}
 
 
 # =========================================================
-# تأكيد الدفع من لوحة الإدارة
+# تأكيد الدفع من الإدارة
 # =========================================================
 
 @app.post("/api/verify")
@@ -1619,10 +1775,7 @@ def verify():
             }
         ), 404
 
-    # إذا كان AI يعمل بالفعل
-    if order.get(
-        "status"
-    ) == "processing":
+    if order.get("status") == "processing":
 
         return jsonify(
             {
@@ -1632,10 +1785,7 @@ def verify():
             }
         )
 
-    # إذا اكتمل
-    if order.get(
-        "status"
-    ) == "completed":
+    if order.get("status") == "completed":
 
         return jsonify(
             {
@@ -1645,10 +1795,7 @@ def verify():
             }
         )
 
-    # إذا أكد سابقًا
-    if order.get(
-        "status"
-    ) == "ready_for_ai":
+    if order.get("status") == "ready_for_ai":
 
         return jsonify(
             {
@@ -1662,10 +1809,7 @@ def verify():
             }
         )
 
-    # يجب أن يكون العميل قد ضغط دفعت
-    if order.get(
-        "status"
-    ) != "payment_submitted":
+    if order.get("status") != "payment_submitted":
 
         return jsonify(
             {
@@ -1679,10 +1823,7 @@ def verify():
             }
         ), 400
 
-    # تأكيد الدفع + تشغيل AI
-    order["status"] = (
-        "processing"
-    )
+    order["status"] = "processing"
 
     order["payment_verified_at"] = (
         time.time()
@@ -1746,7 +1887,6 @@ def telegram_webhook():
         "callback_query"
     )
 
-    # Telegram يرسل أنواعًا أخرى من التحديثات
     if not callback:
 
         return jsonify(
@@ -1779,7 +1919,6 @@ def telegram_webhook():
             }
         )
 
-    # رقم الطلب
     order_id = callback_data[
         len("confirm_payment:"):
     ]
@@ -1814,10 +1953,7 @@ def telegram_webhook():
             }
         )
 
-    # منع الضغط مرتين
-    if order.get(
-        "status"
-    ) in [
+    if order.get("status") in [
 
         "processing",
 
@@ -1846,10 +1982,7 @@ def telegram_webhook():
             }
         )
 
-    # لا يمكن التأكيد قبل ضغط العميل دفعت
-    if order.get(
-        "status"
-    ) != "payment_submitted":
+    if order.get("status") != "payment_submitted":
 
         send_telegram(
             f"""
@@ -1871,13 +2004,7 @@ def telegram_webhook():
             }
         )
 
-    # =====================================================
-    # تأكيد الدفع + بدء AI
-    # =====================================================
-
-    order["status"] = (
-        "processing"
-    )
+    order["status"] = "processing"
 
     order["payment_verified_at"] = (
         time.time()
@@ -1893,7 +2020,6 @@ def telegram_webhook():
 
     save(data)
 
-    # إزالة زر التأكيد
     remove_telegram_button(
         callback
     )
@@ -1913,6 +2039,9 @@ def telegram_webhook():
 🛠 الخدمة:
 {order["service"]}
 
+📦 نوع المهمة:
+{task_type_label(order.get("task_type", "text"))}
+
 👤 العميل:
 {lead.get("name", "غير معروف") if lead else "غير معروف"}
 
@@ -1929,7 +2058,6 @@ processing
 """
     )
 
-    # تشغيل AI بالخلفية
     thread = threading.Thread(
         target=execute_ai_order,
         args=(order["id"],),
@@ -1987,9 +2115,31 @@ def order_status(order_id):
                 "status":
                     order["status"],
 
+                "task_type":
+                    order.get(
+                        "task_type",
+                        "text"
+                    ),
+
+                "task_type_label":
+                    order.get(
+                        "task_type_label",
+                        task_type_label(
+                            order.get(
+                                "task_type",
+                                "text"
+                            )
+                        )
+                    ),
+
                 "result":
                     order.get(
                         "result"
+                    ),
+
+                "image_generation":
+                    order.get(
+                        "image_generation"
                     ),
 
                 "ai_provider":
@@ -2032,6 +2182,58 @@ def admin_api():
 
     return jsonify(
         db()
+    )
+
+
+# =========================================================
+# فحص نوع المهمة
+# =========================================================
+
+@app.post("/api/detect-task")
+def detect_task():
+
+    body = request.json or {}
+
+    problem = str(
+        body.get(
+            "problem",
+            ""
+        )
+    ).strip()
+
+    if not problem:
+
+        return jsonify(
+            {
+                "ok": False,
+                "error":
+                    "المشكلة مطلوبة"
+            }
+        ), 400
+
+    task_type = detect_task_type(
+        problem
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+
+            "task_type":
+                task_type,
+
+            "label":
+                task_type_label(
+                    task_type
+                ),
+
+            "image_required":
+                task_type in [
+                    "image",
+                    "text_image"
+                ]
+
+        }
     )
 
 
@@ -2081,6 +2283,9 @@ def health():
             "gemini_model":
                 GEMINI_MODEL,
 
+            "gemini_image_model":
+                GEMINI_IMAGE_MODEL,
+
             "qr":
                 Path(
                     QR_FILE
@@ -2090,7 +2295,7 @@ def health():
 
 
 # =========================================================
-# إعداد Telegram عند تحميل التطبيق
+# إعداد Telegram
 # =========================================================
 
 try:
