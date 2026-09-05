@@ -26,10 +26,14 @@ DEFAULT_SERVICES = {
     "AI تحليل وحل مشكلة النشاط": 10
 }
 
-# النموذج الافتراضي
-OPENAI_MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "gpt-5.6-luna"
+
+# =========================================================
+# إعداد Gemini
+# =========================================================
+
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash"
 )
 
 
@@ -65,7 +69,10 @@ def db():
 
     except Exception as e:
 
-        print("Database read error:", e)
+        print(
+            "Database read error:",
+            e
+        )
 
         data = {
             "leads": [],
@@ -145,7 +152,6 @@ def telegram_request(method, payload):
 
         return False, None
 
-
     try:
 
         url = (
@@ -153,18 +159,15 @@ def telegram_request(method, payload):
             f"bot{token}/{method}"
         )
 
-
         encoded = urllib.parse.urlencode(
             payload
         ).encode("utf-8")
-
 
         req = urllib.request.Request(
             url,
             data=encoded,
             method="POST"
         )
-
 
         with urllib.request.urlopen(
             req,
@@ -184,7 +187,6 @@ def telegram_request(method, payload):
                 ),
                 result
             )
-
 
     except Exception as e:
 
@@ -217,12 +219,10 @@ def send_telegram(
 
         return False
 
-
     payload = {
         "chat_id": chat_id,
         "text": message
     }
-
 
     if reply_markup:
 
@@ -231,12 +231,10 @@ def send_telegram(
             ensure_ascii=False
         )
 
-
     ok, result = telegram_request(
         "sendMessage",
         payload
     )
-
 
     return ok
 
@@ -254,7 +252,6 @@ def answer_callback(
 
         return
 
-
     telegram_request(
         "answerCallbackQuery",
         {
@@ -268,7 +265,7 @@ def answer_callback(
 
 
 # =========================================================
-# إزالة زر التأكيد من رسالة Telegram
+# إزالة زر التأكيد من Telegram
 # =========================================================
 
 def remove_telegram_button(
@@ -285,7 +282,6 @@ def remove_telegram_button(
 
             return
 
-
         chat = message.get(
             "chat",
             {}
@@ -299,11 +295,9 @@ def remove_telegram_button(
             "message_id"
         )
 
-
         if not chat_id or not message_id:
 
             return
-
 
         telegram_request(
             "editMessageReplyMarkup",
@@ -374,7 +368,6 @@ def get_app_url():
 
         return render_url.rstrip("/")
 
-
     app_url = os.getenv(
         "APP_URL"
     )
@@ -383,8 +376,6 @@ def get_app_url():
 
         return app_url.rstrip("/")
 
-
-    # احتياط
     return (
         "https://ai-y7lha-syria.onrender.com"
     )
@@ -405,14 +396,11 @@ def setup_telegram_webhook():
 
         return
 
-
     app_url = get_app_url()
-
 
     webhook_url = (
         f"{app_url}/telegram/webhook"
     )
-
 
     ok, result = telegram_request(
         "setWebhook",
@@ -421,7 +409,6 @@ def setup_telegram_webhook():
                 webhook_url
         }
     )
-
 
     if ok:
 
@@ -439,40 +426,60 @@ def setup_telegram_webhook():
 
 
 # =========================================================
-# OpenAI API
+# Gemini API
 # =========================================================
 
-def openai_request(
-    prompt
-):
+def gemini_request(prompt):
 
     api_key = os.getenv(
-        "OPENAI_API_KEY"
+        "GEMINI_API_KEY"
     )
-
 
     if not api_key:
 
         return (
             False,
-            "OPENAI_API_KEY غير موجود في Render."
+            "GEMINI_API_KEY غير موجود في Render."
         )
 
-
     url = (
-        "https://api.openai.com/v1/responses"
+        "https://generativelanguage.googleapis.com/"
+        f"v1beta/models/{GEMINI_MODEL}:generateContent"
     )
-
 
     payload = {
 
-        "model":
-            OPENAI_MODEL,
+        "contents": [
 
-        "input":
-            prompt
+            {
+
+                "role":
+                    "user",
+
+                "parts": [
+
+                    {
+                        "text":
+                            prompt
+                    }
+
+                ]
+
+            }
+
+        ],
+
+        "generationConfig": {
+
+            "temperature":
+                0.7,
+
+            "maxOutputTokens":
+                4000
+
+        }
+
     }
-
 
     try:
 
@@ -480,7 +487,6 @@ def openai_request(
             payload,
             ensure_ascii=False
         ).encode("utf-8")
-
 
         req = urllib.request.Request(
             url,
@@ -490,11 +496,10 @@ def openai_request(
                 "Content-Type":
                     "application/json",
 
-                "Authorization":
-                    f"Bearer {api_key}"
+                "x-goog-api-key":
+                    api_key
             }
         )
-
 
         with urllib.request.urlopen(
             req,
@@ -507,57 +512,53 @@ def openai_request(
 
             result = json.loads(raw)
 
-
-        # Responses API قد تعيد output_text
-        text = result.get(
-            "output_text"
-        )
-
-
-        if text:
-
-            return (
-                True,
-                text.strip()
-            )
-
-
-        # احتياط إذا لم يوجد output_text
-        output = result.get(
-            "output",
+        candidates = result.get(
+            "candidates",
             []
         )
 
+        if not candidates:
+
+            error_message = result.get(
+                "error",
+                {}
+            ).get(
+                "message",
+                "Gemini لم يعطِ نتيجة."
+            )
+
+            return (
+                False,
+                error_message
+            )
+
+        content = candidates[0].get(
+            "content",
+            {}
+        )
+
+        parts = content.get(
+            "parts",
+            []
+        )
 
         texts = []
 
+        for part in parts:
 
-        for item in output:
+            text = part.get(
+                "text"
+            )
 
-            for content in item.get(
-                "content",
-                []
-            ):
+            if text:
 
-                if content.get(
-                    "type"
-                ) == "output_text":
-
-                    value = content.get(
-                        "text"
-                    )
-
-                    if value:
-
-                        texts.append(
-                            value
-                        )
-
+                texts.append(
+                    text
+                )
 
         final_text = "\n".join(
             texts
         ).strip()
-
 
         if final_text:
 
@@ -566,17 +567,49 @@ def openai_request(
                 final_text
             )
 
+        return (
+            False,
+            "Gemini أعاد استجابة بدون نص."
+        )
+
+    except urllib.error.HTTPError as e:
+
+        try:
+
+            error_body = e.read().decode(
+                "utf-8"
+            )
+
+            error_data = json.loads(
+                error_body
+            )
+
+            error_message = error_data.get(
+                "error",
+                {}
+            ).get(
+                "message",
+                error_body
+            )
+
+        except Exception:
+
+            error_message = str(e)
+
+        print(
+            "Gemini HTTP error:",
+            error_message
+        )
 
         return (
             False,
-            "لم يتم الحصول على نتيجة نصية من AI."
+            f"Gemini HTTP Error {e.code}: {error_message}"
         )
-
 
     except Exception as e:
 
         print(
-            "OpenAI error:",
+            "Gemini error:",
             e
         )
 
@@ -615,7 +648,6 @@ def build_ai_prompt(
         ""
     )
 
-
     prompt = f"""
 أنت الذكاء الاصطناعي التنفيذي في شركة
 "AI يحلها سوريا".
@@ -637,31 +669,47 @@ def build_ai_prompt(
 نفّذ العمل بشكل عملي ومفيد، وليس مجرد نصائح عامة.
 
 إذا كانت الخدمة:
+
 - AI محتوى للمطاعم:
-  أنشئ محتوى تسويقي عملي مناسب للمطعم، مثل منشورات وأفكار عروض ونصوص جاهزة للنشر.
+  أنشئ محتوى تسويقي عملي مناسب للمطعم،
+  مثل منشورات جاهزة، أفكار عروض،
+  نصوص إعلانية وأفكار فيديوهات قصيرة.
 
 - AI محتوى المنتجات:
-  أنشئ وصفًا احترافيًا للمنتجات، عناوين تسويقية، منشورات وإعلانات جاهزة.
+  أنشئ وصفًا احترافيًا للمنتجات،
+  عناوين تسويقية، منشورات وإعلانات جاهزة،
+  ونقاط بيع قوية.
 
 - AI تنظيم العملاء والردود:
-  أنشئ نظامًا عمليًا للرد على العملاء وتنظيم المحادثات، مع ردود جاهزة وسيناريوهات متابعة.
+  أنشئ نظامًا عمليًا للرد على العملاء
+  وتنظيم المحادثات، مع ردود جاهزة،
+  وتصنيف العملاء وسيناريوهات متابعة.
 
 - AI تحليل وحل مشكلة النشاط:
-  حلّل المشكلة بعمق، حدد أسبابها، ثم قدم خطة تنفيذ واضحة خطوة بخطوة.
+  حلّل المشكلة بعمق،
+  حدد الأسباب المحتملة،
+  ثم قدم خطة تنفيذ واضحة خطوة بخطوة،
+  مع مؤشرات يمكن استخدامها لقياس التحسن.
 
-لا تدّعِ أنك نفذت شيئًا خارج النص أو أنك دخلت إلى حسابات العميل.
+لا تدّعِ أنك دخلت إلى حسابات العميل
+أو نفذت إجراءات خارج النص.
 
-يجب أن تكون النتيجة جاهزة ليتم تسليمها للعميل.
+يجب أن تكون النتيجة عملية وجاهزة
+ليتم تسليمها للعميل.
 
-اكتب النتيجة باللغة العربية وبأسلوب احترافي واضح.
+اكتب النتيجة باللغة العربية
+وبأسلوب احترافي واضح.
+
+قسّم النتيجة إلى عناوين ونقاط واضحة.
+لا تكرر وصف المشكلة فقط.
+ابدأ مباشرة بالحل والتنفيذ.
 """
-
 
     return prompt
 
 
 # =========================================================
-# إرسال إشعار AI بدأ العمل
+# إشعار AI بدأ العمل
 # =========================================================
 
 def notify_ai_started(
@@ -673,7 +721,6 @@ def notify_ai_started(
         "name",
         "غير معروف"
     )
-
 
     message = f"""
 🚀 بدأ الذكاء الاصطناعي العمل
@@ -690,12 +737,14 @@ def notify_ai_started(
 💵 السعر:
 ${order["price_usd"]}
 
+🤖 المحرك:
+Gemini
+
 🟡 الحالة:
 processing
 
-🤖 AI يعمل الآن على تنفيذ الطلب.
+الذكاء الاصطناعي يعمل الآن على تنفيذ الطلب.
 """
-
 
     return send_telegram(
         message
@@ -716,7 +765,6 @@ def notify_ai_completed(
         "غير معروف"
     )
 
-
     message = f"""
 🎉 اكتمل تنفيذ الطلب
 
@@ -732,12 +780,14 @@ def notify_ai_completed(
 💵 السعر:
 ${order["price_usd"]}
 
+🤖 المحرك:
+Gemini
+
 🟢 الحالة:
 completed
 
 ✅ نتيجة AI أصبحت جاهزة للتسليم للعميل.
 """
-
 
     return send_telegram(
         message
@@ -762,6 +812,9 @@ def notify_ai_failed(
 🛠 الخدمة:
 {order["service"]}
 
+🤖 المحرك:
+Gemini
+
 ⚠️ السبب:
 {error}
 
@@ -770,7 +823,6 @@ ai_failed
 
 يمكن إعادة المحاولة من النظام لاحقًا.
 """
-
 
     return send_telegram(
         message
@@ -790,15 +842,12 @@ def execute_ai_order(
         order_id
     )
 
-
     data = db()
-
 
     order = find_order(
         data,
         order_id
     )
-
 
     if not order:
 
@@ -807,7 +856,6 @@ def execute_ai_order(
         )
 
         return
-
 
     # حماية من التنفيذ المكرر
     if order.get(
@@ -820,7 +868,6 @@ def execute_ai_order(
 
         return
 
-
     if order.get(
         "status"
     ) != "processing":
@@ -832,14 +879,12 @@ def execute_ai_order(
 
         return
 
-
     lead = find_lead(
         data,
         order.get(
             "lead_id"
         )
     )
-
 
     if not lead:
 
@@ -860,19 +905,17 @@ def execute_ai_order(
 
         return
 
-
     prompt = build_ai_prompt(
         order,
         lead
     )
 
-
-    ok, result = openai_request(
+    ok, result = gemini_request(
         prompt
     )
 
-
-    # إعادة قراءة البيانات حتى لا نكتب فوق تغييرات حديثة
+    # إعادة قراءة البيانات
+    # حتى لا نكتب فوق تغييرات حديثة
     data = db()
 
     order = find_order(
@@ -880,11 +923,9 @@ def execute_ai_order(
         order_id
     )
 
-
     if not order:
 
         return
-
 
     if not ok:
 
@@ -902,14 +943,12 @@ def execute_ai_order(
 
         save(data)
 
-
         notify_ai_failed(
             order,
             result
         )
 
         return
-
 
     # حفظ النتيجة
     order["result"] = result
@@ -923,18 +962,19 @@ def execute_ai_order(
     )
 
     order["ai_model"] = (
-        OPENAI_MODEL
+        GEMINI_MODEL
     )
 
+    order["ai_provider"] = (
+        "gemini"
+    )
 
     save(data)
-
 
     notify_ai_completed(
         order,
         lead
     )
-
 
     print(
         "AI worker completed:",
@@ -957,11 +997,9 @@ def start_ai_for_order(
         order_id
     )
 
-
     if not order:
 
         return False
-
 
     # حماية قوية من التكرار
     if order.get(
@@ -973,13 +1011,11 @@ def start_ai_for_order(
 
         return False
 
-
     if order.get(
         "status"
     ) != "payment_submitted":
 
         return False
-
 
     order["status"] = (
         "processing"
@@ -989,9 +1025,7 @@ def start_ai_for_order(
         time.time()
     )
 
-
     save(data)
-
 
     lead = find_lead(
         data,
@@ -1000,14 +1034,12 @@ def start_ai_for_order(
         )
     )
 
-
     if lead:
 
         notify_ai_started(
             order,
             lead
         )
-
 
     # تشغيل العامل في الخلفية
     thread = threading.Thread(
@@ -1017,7 +1049,6 @@ def start_ai_for_order(
     )
 
     thread.start()
-
 
     return True
 
@@ -1059,7 +1090,6 @@ def qr():
         QR_FILE
     )
 
-
     if not qr_path.exists():
 
         return jsonify(
@@ -1069,7 +1099,6 @@ def qr():
                     "QR image not found"
             }
         ), 404
-
 
     return send_from_directory(
         ".",
@@ -1102,14 +1131,12 @@ def lead():
 
     body = request.json or {}
 
-
     name = str(
         body.get(
             "name",
             ""
         )
     ).strip()
-
 
     contact = str(
         body.get(
@@ -1118,7 +1145,6 @@ def lead():
         )
     ).strip()
 
-
     problem = str(
         body.get(
             "problem",
@@ -1126,14 +1152,12 @@ def lead():
         )
     ).strip()
 
-
     link = str(
         body.get(
             "link",
             ""
         )
     ).strip()
-
 
     if not name or not contact or not problem:
 
@@ -1145,9 +1169,7 @@ def lead():
             }
         ), 400
 
-
     now = time.time()
-
 
     # منع التكرار لمدة 10 دقائق
     for old in data["leads"]:
@@ -1180,7 +1202,6 @@ def lead():
                 }
             )
 
-
     lead_id = (
         "L" +
         str(
@@ -1189,7 +1210,6 @@ def lead():
             )
         )
     )
-
 
     new_lead = {
 
@@ -1216,14 +1236,11 @@ def lead():
 
     }
 
-
     data["leads"].append(
         new_lead
     )
 
-
     save(data)
-
 
     return jsonify(
         {
@@ -1244,7 +1261,6 @@ def order():
 
     body = request.json or {}
 
-
     lead_id = body.get(
         "lead_id"
     )
@@ -1252,7 +1268,6 @@ def order():
     service = body.get(
         "service"
     )
-
 
     if not lead_id or not service:
 
@@ -1264,7 +1279,6 @@ def order():
             }
         ), 400
 
-
     if service not in data["services"]:
 
         return jsonify(
@@ -1275,12 +1289,10 @@ def order():
             }
         ), 400
 
-
     lead = find_lead(
         data,
         lead_id
     )
-
 
     if not lead:
 
@@ -1291,7 +1303,6 @@ def order():
                     "العميل غير موجود"
             }
         ), 404
-
 
     active_statuses = [
 
@@ -1308,7 +1319,6 @@ def order():
         "completed"
 
     ]
-
 
     # منع الطلب نفسه مرتين
     for old in data["orders"]:
@@ -1357,7 +1367,6 @@ def order():
                 }
             )
 
-
     order_id = (
 
         "ORD" +
@@ -1370,11 +1379,9 @@ def order():
 
     )
 
-
     price = float(
         data["services"][service]
     )
-
 
     new_order = {
 
@@ -1401,14 +1408,11 @@ def order():
 
     }
 
-
     data["orders"].append(
         new_order
     )
 
-
     save(data)
-
 
     return jsonify(
         {
@@ -1446,11 +1450,9 @@ def paid():
 
     body = request.json or {}
 
-
     order_id = body.get(
         "order_id"
     )
-
 
     if not order_id:
 
@@ -1462,12 +1464,10 @@ def paid():
             }
         ), 400
 
-
     order = find_order(
         data,
         order_id
     )
-
 
     if not order:
 
@@ -1478,7 +1478,6 @@ def paid():
                     "الطلب غير موجود"
             }
         ), 404
-
 
     # إذا تم إرسال الدفع سابقًا
     if order.get(
@@ -1512,7 +1511,6 @@ def paid():
             }
         )
 
-
     order["status"] = (
         "payment_submitted"
     )
@@ -1521,17 +1519,13 @@ def paid():
         time.time()
     )
 
-
     client = find_lead(
         data,
         order["lead_id"]
     )
 
-
     save(data)
 
-
-    # إرسال رسالة Telegram مع زر التأكيد
     telegram_sent = send_telegram(
 
         f"""
@@ -1569,7 +1563,6 @@ ${order["price_usd"]}
 
     )
 
-
     return jsonify(
         {
             "ok": True,
@@ -1597,11 +1590,9 @@ def verify():
 
     body = request.json or {}
 
-
     order_id = body.get(
         "order_id"
     )
-
 
     if not order_id:
 
@@ -1613,12 +1604,10 @@ def verify():
             }
         ), 400
 
-
     order = find_order(
         data,
         order_id
     )
-
 
     if not order:
 
@@ -1629,7 +1618,6 @@ def verify():
                     "الطلب غير موجود"
             }
         ), 404
-
 
     # إذا كان AI يعمل بالفعل
     if order.get(
@@ -1644,7 +1632,6 @@ def verify():
             }
         )
 
-
     # إذا اكتمل
     if order.get(
         "status"
@@ -1657,7 +1644,6 @@ def verify():
                     order
             }
         )
-
 
     # إذا أكد سابقًا
     if order.get(
@@ -1676,7 +1662,6 @@ def verify():
             }
         )
 
-
     # يجب أن يكون العميل قد ضغط دفعت
     if order.get(
         "status"
@@ -1694,8 +1679,7 @@ def verify():
             }
         ), 400
 
-
-    # نقل الطلب مباشرة إلى processing
+    # تأكيد الدفع + تشغيل AI
     order["status"] = (
         "processing"
     )
@@ -1712,15 +1696,12 @@ def verify():
         time.time()
     )
 
-
     save(data)
-
 
     lead = find_lead(
         data,
         order["lead_id"]
     )
-
 
     if lead:
 
@@ -1729,8 +1710,6 @@ def verify():
             lead
         )
 
-
-    # تشغيل AI
     thread = threading.Thread(
         target=execute_ai_order,
         args=(order["id"],),
@@ -1738,7 +1717,6 @@ def verify():
     )
 
     thread.start()
-
 
     return jsonify(
         {
@@ -1764,11 +1742,9 @@ def telegram_webhook():
         silent=True
     ) or {}
 
-
     callback = update.get(
         "callback_query"
     )
-
 
     # Telegram يرسل أنواعًا أخرى من التحديثات
     if not callback:
@@ -1779,17 +1755,14 @@ def telegram_webhook():
             }
         )
 
-
     callback_id = callback.get(
         "id"
     )
-
 
     callback_data = callback.get(
         "data",
         ""
     )
-
 
     if not callback_data.startswith(
         "confirm_payment:"
@@ -1806,27 +1779,22 @@ def telegram_webhook():
             }
         )
 
-
     # رقم الطلب
     order_id = callback_data[
         len("confirm_payment:"):
     ]
-
 
     answer_callback(
         callback_id,
         "جارٍ تأكيد الدفع وبدء AI..."
     )
 
-
     data = db()
-
 
     order = find_order(
         data,
         order_id
     )
-
 
     if not order:
 
@@ -1846,7 +1814,6 @@ def telegram_webhook():
             }
         )
 
-
     # منع الضغط مرتين
     if order.get(
         "status"
@@ -1862,7 +1829,6 @@ def telegram_webhook():
             callback
         )
 
-
         send_telegram(
             f"""
 ℹ️ هذا الطلب تمت معالجته مسبقًا
@@ -1874,13 +1840,11 @@ def telegram_webhook():
 """
         )
 
-
         return jsonify(
             {
                 "ok": True
             }
         )
-
 
     # لا يمكن التأكيد قبل ضغط العميل دفعت
     if order.get(
@@ -1901,13 +1865,11 @@ def telegram_webhook():
 """
         )
 
-
         return jsonify(
             {
                 "ok": True
             }
         )
-
 
     # =====================================================
     # تأكيد الدفع + بدء AI
@@ -1929,23 +1891,18 @@ def telegram_webhook():
         time.time()
     )
 
-
     save(data)
 
-
-    # إزالة زر التأكيد حتى لا يتم الضغط عليه مرة أخرى
+    # إزالة زر التأكيد
     remove_telegram_button(
         callback
     )
-
 
     lead = find_lead(
         data,
         order["lead_id"]
     )
 
-
-    # إشعار واضح لك
     send_telegram(
         f"""
 🚀 بدأ AI العمل الآن
@@ -1962,13 +1919,15 @@ def telegram_webhook():
 💵 السعر:
 ${order["price_usd"]}
 
+🤖 المحرك:
+Gemini
+
 🟢 الحالة:
 processing
 
 🤖 تم تأكيد الدفع وبدأ تنفيذ الطلب فعليًا.
 """
     )
-
 
     # تشغيل AI بالخلفية
     thread = threading.Thread(
@@ -1978,7 +1937,6 @@ processing
     )
 
     thread.start()
-
 
     return jsonify(
         {
@@ -1996,12 +1954,10 @@ def order_status(order_id):
 
     data = db()
 
-
     order = find_order(
         data,
         order_id
     )
-
 
     if not order:
 
@@ -2012,7 +1968,6 @@ def order_status(order_id):
                     "الطلب غير موجود"
             }
         ), 404
-
 
     return jsonify(
         {
@@ -2037,6 +1992,21 @@ def order_status(order_id):
                         "result"
                     ),
 
+                "ai_provider":
+                    order.get(
+                        "ai_provider"
+                    ),
+
+                "ai_model":
+                    order.get(
+                        "ai_model"
+                    ),
+
+                "ai_error":
+                    order.get(
+                        "ai_error"
+                    ),
+
                 "ai_started_at":
                     order.get(
                         "ai_started_at"
@@ -2048,6 +2018,7 @@ def order_status(order_id):
                     )
 
             }
+
         }
     )
 
@@ -2100,8 +2071,15 @@ def health():
                     )
                 ),
 
-            "openai_model":
-                OPENAI_MODEL,
+            "gemini":
+                bool(
+                    os.getenv(
+                        "GEMINI_API_KEY"
+                    )
+                ),
+
+            "gemini_model":
+                GEMINI_MODEL,
 
             "qr":
                 Path(
@@ -2139,7 +2117,6 @@ if __name__ == "__main__":
             5000
         )
     )
-
 
     app.run(
         host="0.0.0.0",
